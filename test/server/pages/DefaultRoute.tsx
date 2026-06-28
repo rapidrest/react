@@ -12,7 +12,7 @@ const {
 } = RouteDecorators;
 
 @Route("/app")
-class DefaultRoute extends ReactRoute {
+export class DefaultRoute extends ReactRoute {
     protected layout: ComponentType<PropsWithChildren> = Layout;
     protected renderHTML(props?: any) {
         return <>Hello World!</>;

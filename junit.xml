@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0.1116788">
-    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-06-27T01:19:03.551Z" hostname="Jane" tests="1" failures="1" errors="0" skipped="0" time="0.1116788">
-        <testcase classname="test/ReactRoute.test.ts" name="Auth Tests &gt; Can server React content." time="0.0555472">
-            <failure message="expected 404 to be less than 300" type="AssertionError">
-AssertionError: expected 404 to be less than 300
- ❯ test/ReactRoute.test.ts:29:31
-            </failure>
+<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.1187732">
+    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-06-28T20:48:10.718Z" hostname="Jane" tests="1" failures="0" errors="0" skipped="0" time="0.1187732">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve pre-rendered React content." time="0.0605796">
+            <system-out>
+2026-06-28T20:48:10.630Z [34mdebug[39m: Page not found in cache [hash=28b9a5dd935dc339f75175966f45540f]. Rendering...
+
+            </system-out>
+            <system-err>
+Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+            </system-err>
         </testcase>
     </testsuite>
 </testsuites>
