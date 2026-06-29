@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="7" failures="0" errors="0" time="0.1591282">
-    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-06-29T05:19:46.045Z" hostname="Jane" tests="7" failures="0" errors="0" skipped="0" time="0.1591282">
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0698641">
+<testsuites name="vitest tests" tests="7" failures="0" errors="0" time="0.1756876">
+    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-06-29T06:19:36.703Z" hostname="Jane" tests="7" failures="0" errors="0" skipped="0" time="0.1756876">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0722258">
             <system-out>
-2026-06-29T05:19:45.903Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-06-29T06:19:36.529Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
             <system-err>
@@ -11,39 +11,39 @@ Your app (or one of its dependencies) is using an outdated JSX transform. Update
 
             </system-err>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0030378">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0033933">
             <system-out>
-2026-06-29T05:19:45.924Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-06-29T06:19:36.551Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0070463">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0079811">
             <system-out>
-2026-06-29T05:19:45.926Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
+2026-06-29T06:19:36.554Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0069093">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0080738">
             <system-out>
-2026-06-29T05:19:45.934Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
+2026-06-29T06:19:36.562Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0060246">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0079756">
             <system-out>
-2026-06-29T05:19:45.940Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
+2026-06-29T06:19:36.570Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0025842">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0037126">
             <system-out>
-2026-06-29T05:19:45.946Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-06-29T06:19:36.578Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0065955">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.00814">
             <system-out>
-2026-06-29T05:19:45.949Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
+2026-06-29T06:19:36.582Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
 
             </system-out>
         </testcase>

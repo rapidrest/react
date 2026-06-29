@@ -6,14 +6,14 @@ import { EventEmitter } from "events";
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
-import { DatabaseDecorators, HttpRequest, HttpResponse, RouteDecorators } from "@rapidrest/service-core";
+import { DatabaseDecorators, HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapidrest/service-core";
 import { Redis } from "ioredis";
 import React, { ComponentType, PropsWithChildren } from "react";
 import { renderToString } from "react-dom/server";
 import { ObjectDecorators } from "@rapidrest/core";
 
 const { RedisConnection } = DatabaseDecorators;
-const { Config, Init, Logger } = ObjectDecorators;
+const { Config, Init, Inject, Logger } = ObjectDecorators;
 const { ContentType, Get, Request, Response } = RouteDecorators;
 
 const _hashCache: Map<string, string> = new Map();
@@ -42,7 +42,7 @@ function resolveAppFile(appDir: string, segment: string): string | null {
  * Base class for HTTP routes that serve React pages from the `app/` directory.
  *
  * Convention-based page routing:
- *  - `app/_layout.tsx` — global HTML wrapper (loaded once, required)
+ *  - `app/layout.tsx` — global HTML wrapper (loaded once, required)
  *  - `app/_404.tsx`    — 404 error page (optional)
  *  - `app/_500.tsx`    — 500 error page (optional)
  *  - `app/pets.tsx`    — serves GET /pets
@@ -82,49 +82,57 @@ export class ReactRoute {
 
     /** Filesystem path to the app directory, relative to cwd. Configure via nconf `react:appDir`. */
     @Config("react:appDir", "app")
-    private _appDir: string = "app";
+    private appDir: string = "app";
 
     /**
      * Path to Vite's manifest.json for resolving content-hashed bundle URLs.
      * Required when `hydrate = true` in production. Configure via nconf `react:manifestPath`.
      */
     @Config("react:manifestPath", "")
-    private _manifestPath: string = "";
+    private manifestPath: string = "";
 
-    private _layout: ComponentType<PropsWithChildren> | null = null;
+    private layout: ComponentType<PropsWithChildren> | null = null;
+
+    @Logger
+    protected logger: any;
 
     /**
      * In production the manifest is loaded once at @Init.
      * In development it is re-read from disk on every request so fresh bundle URLs
      * are used immediately after `vite build --watch` finishes a rebuild.
      */
-    private _manifest: Record<string, { file: string; css?: string[] }> | null = null;
+    private manifest: Record<string, { file: string; css?: string[] }> | null = null;
+
+    @Inject(ObjectFactory)
+    private objectFactory?: ObjectFactory;
 
     /**
      * The URL prefix derived from `@Route` metadata at init time.
      * E.g. `@Route("/app/*")` → prefix = "/app". Used to strip the prefix from req.path
      * before resolving app page files, and to scope the dev-reload SSE endpoint.
      */
-    private _routePrefix: string = "";
+    private routePrefix: string = "";
 
-    @Logger
-    protected logger: any;
+    /**
+     * A map of paths to service class instances to use when fetching props during page rendering.
+     */
+    private services: Map<string, any> = new Map();
 
     @Init
-    protected init() {
+    protected async init() {
         // Derive the route prefix from @Route metadata so page resolution is prefix-agnostic.
         // @Route("/app/*") → prefix "/app", @Route("/*") → prefix ""
         const routePaths: string[] = Reflect.getMetadata("rrst:routePaths", Object.getPrototypeOf(this)) || [];
-        this._routePrefix = (routePaths[0] || "")
+        this.routePrefix = (routePaths[0] || "")
             .replace(/\/\*$/, "")   // strip trailing /*
             .replace(/\/$/, "");    // strip trailing /
 
-        const manifestPath = this._manifestPath;
+        const manifestPath = this.manifestPath;
 
         // Production: load manifest once
         if (process.env.NODE_ENV === "production" && manifestPath) {
             try {
-                this._manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+                this.manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
             } catch (err) {
                 this.logger.warn(`[ReactRoute] Could not load Vite manifest at "${manifestPath}": ${err}`);
             }
@@ -146,6 +154,24 @@ export class ReactRoute {
                 // browser reload will still happen via server-restart SSE connection drop.
             }
         }
+
+        // Scan the class loader for all classes that have been marked with @ReactService.
+        this.objectFactory?.classes.forEach(async (clazz, name) => {
+            let routePaths: string[] | undefined = Reflect.getMetadata("rrst:reactServicePaths", clazz.prototype);
+            if (routePaths) {
+                this.logger.debug(`Found react service. Name=${name}, Paths=${routePaths}`);
+                // Instantiate the react service and register in the map for each path configured.
+                const instance: any = await this.objectFactory?.newInstance(clazz, { name: "default" });
+                if (instance) {
+                    for (const rpath of routePaths) {
+                        const pageSegment = this.routePrefix && rpath.startsWith(this.routePrefix)
+                            ? rpath.slice(this.routePrefix.length) || "/"
+                            : rpath;
+                        this.services.set(pageSegment, instance);
+                    }
+                }
+            }
+        });
     }
 
     /**
@@ -167,8 +193,8 @@ export class ReactRoute {
     public async get(@Request req: HttpRequest, @Response res: HttpResponse) {
         // Strip the route prefix (e.g. "/app" from "/app/pets" → "/pets") so the page
         // file resolution is independent of where the route is mounted.
-        const pageSegment = this._routePrefix && req.path.startsWith(this._routePrefix)
-            ? req.path.slice(this._routePrefix.length) || "/"
+        const pageSegment = this.routePrefix && req.path.startsWith(this.routePrefix)
+            ? req.path.slice(this.routePrefix.length) || "/"
             : req.path;
 
         // Dev SSE live-reload stream — held at <prefix>/__rapidrest__/reload
@@ -188,19 +214,19 @@ export class ReactRoute {
         this.logger.debug(`[ReactRoute] Rendering "${pageSegment}"`);
 
         // Lazy-load the global layout on first request
-        if (!this._layout) {
-            const layoutPath = resolveAppFile(this._appDir, "_layout");
+        if (!this.layout) {
+            const layoutPath = resolveAppFile(this.appDir, "_layout");
             if (layoutPath) {
                 const layoutMod = await import(pathToFileURL(layoutPath).href);
-                this._layout = layoutMod.default;
+                this.layout = layoutMod.default;
             }
         }
 
         // Resolve page file — fall back to _404 when path has no matching file
-        let pagePath = resolveAppFile(this._appDir, pageSegment);
+        let pagePath = resolveAppFile(this.appDir, pageSegment);
         let httpStatus = 200;
         if (!pagePath) {
-            pagePath = resolveAppFile(this._appDir, "_404");
+            pagePath = resolveAppFile(this.appDir, "_404");
             httpStatus = 404;
         }
 
@@ -214,13 +240,16 @@ export class ReactRoute {
             const PageComponent = mod.default;
             const pageFetchProps: ((req: HttpRequest) => Promise<any>) | undefined = mod.fetchProps;
 
-            // Page-level props merged with class-level override.
-            // Class-level runs last so DI-injected subclass data takes precedence.
-            const pageProps = pageFetchProps ? await pageFetchProps(req) : {};
-            const classProps = (await this.fetchProps(req)) ?? {};
-            const props = { user: req.user, userUid: req.user?.uid, ...pageProps, ...classProps };
+            // Check to see if there's a react service for this page path
+            const service: any = this.services.get(pageSegment);
 
-            const Layout = this._layout;
+            // There are three levels of fetching props: Page => Service => Route
+            const pageProps = pageFetchProps ? await pageFetchProps(req) : {};
+            const serviceProps = service ? await service.fetchProps(req) : {};
+            const routeProps = (await this.fetchProps(req)) ?? {};
+            const props = { user: req.user, userUid: req.user?.uid, ...pageProps, ...serviceProps, ...routeProps };
+
+            const Layout = this.layout;
             const content = this.hydrate
                 ? <div id={this.hydrateRootId}><PageComponent {...props} /></div>
                 : <PageComponent {...props} />;
@@ -234,12 +263,12 @@ export class ReactRoute {
             this.logger.error(`[ReactRoute] SSR error for "${req.path}":`, err);
             httpStatus = 500;
 
-            const errorPath = resolveAppFile(this._appDir, "_500");
+            const errorPath = resolveAppFile(this.appDir, "_500");
             if (errorPath) {
                 try {
                     const errMod = await import(pathToFileURL(errorPath).href);
                     const ErrorPage = errMod.default;
-                    const Layout = this._layout;
+                    const Layout = this.layout;
                     html = renderToString(
                         Layout
                             ? <Layout><ErrorPage error={err} /></Layout>
@@ -306,7 +335,7 @@ export class ReactRoute {
     }
 
     private injectDevReloadScript(html: string): string {
-        const sseUrl = this._routePrefix + DEV_RELOAD_PATH;
+        const sseUrl = this.routePrefix + DEV_RELOAD_PATH;
         const script = `<script>(function(){` +
             `var e=new EventSource('${sseUrl}');` +
             `e.onmessage=function(m){if(m.data==='reload')location.reload();};` +
@@ -322,8 +351,8 @@ export class ReactRoute {
     // --- Hydration ---
 
     private resolveManifest(): Record<string, { file: string; css?: string[] }> | null {
-        if (process.env.NODE_ENV === "production") return this._manifest;
-        const manifestPath = this._manifestPath;
+        if (process.env.NODE_ENV === "production") return this.manifest;
+        const manifestPath = this.manifestPath;
         if (!manifestPath) return null;
         try {
             return JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
