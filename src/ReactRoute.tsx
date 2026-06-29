@@ -48,7 +48,7 @@ export abstract class ReactRoute {
      * @param req The request to compute a hash key for.
      */
     protected hashRequest(req: HttpRequest): string {
-        const key: string = "static." + JSON.stringify({ path: req.path, params: req.params });
+        const key: string = "static." + JSON.stringify({ path: req.path, params: req.params, userUid: req.user?.uid });
         let hash: string | undefined = _hashCache.get(key);
         if (!hash) {
             hash = crypto.createHash("md5").update(key).digest("hex");
@@ -76,7 +76,11 @@ export abstract class ReactRoute {
         if (!html) {
             this.logger.debug(`Page not found in cache [hash=${hash}]. Rendering...`);
             const Layout = this.layout;
-            const props = await this.fetchProps(req);
+            const props = {
+                user: req.user,
+                userUid: req.user?.uid,
+                ...await this.fetchProps(req)
+            };
             const page = this.renderHTML(props);
             // Render the page
             html = renderToString(
