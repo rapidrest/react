@@ -1,8 +1,9 @@
 import React, { PropsWithChildren } from "react";
 
-export function Layout({ children }: PropsWithChildren) {
+export default function Layout({ children }: PropsWithChildren) {
     return (
         <html>
+            <head></head>
             <body>{children}</body>
         </html>
     );

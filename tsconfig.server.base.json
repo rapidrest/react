@@ -1,20 +1,16 @@
 {
     "compilerOptions": {
-        "jsx": "react",
-        "moduleResolution": "NodeNext",
         "target": "ES2020",
         "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "jsx": "react",
         "strict": true,
         "sourceMap": true,
         "declaration": true,
         "allowSyntheticDefaultImports": true,
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
-        "noImplicitAny": false,
-        "rootDir": "src",
-        "declarationDir": "dist/types",
-        "outDir": "dist/lib"
+        "noImplicitAny": false
     },
-    "include": ["src"],
-    "exclude": ["src/client.ts", "src/vite.ts", "src/cli.ts"]
+    "include": ["src", "app"]
 }

@@ -1,0 +1,13 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "types": ["node"],
+        "rootDir": "src",
+        "outDir": "dist/vite",
+        "declarationDir": "dist/vite"
+    },
+    "include": ["src/vite.ts"],
+    "exclude": []
+}
