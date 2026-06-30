@@ -111,14 +111,12 @@
             "import": "./dist/vite/vite.js",
             "types": "./dist/vite/vite.d.ts"
         },
-        "./tsconfig/server": "./tsconfig.server.base.json",
         "./tsconfig/client": "./tsconfig.client.base.json"
     },
     "typings": "dist/types/index.d.ts",
     "files": [
         "dist",
         "docs",
-        "tsconfig.server.base.json",
         "tsconfig.client.base.json"
     ]
 }

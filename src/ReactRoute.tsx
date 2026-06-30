@@ -68,6 +68,9 @@ export class ReactRoute {
     @RedisConnection("cache")
     protected cacheClient?: Redis;
 
+    /** Filesystem path to the app directory, relative to cwd. Default is `apps/app`. */
+    protected readonly appDir: string = "apps/app";
+
     /** Cache TTL in seconds. Caching is only active in production (`NODE_ENV=production`). */
     protected readonly cacheTTL: number = 60;
 
@@ -79,10 +82,6 @@ export class ReactRoute {
 
     /** DOM element id for the serialized props `<script>` tag. */
     protected readonly hydratePropsId: string = "react-props";
-
-    /** Filesystem path to the app directory, relative to cwd. Configure via nconf `react:appDir`. */
-    @Config("react:appDir", "app")
-    private appDir: string = "app";
 
     /**
      * Path to Vite's manifest.json for resolving content-hashed bundle URLs.

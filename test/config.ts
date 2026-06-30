@@ -44,9 +44,6 @@ conf.defaults({
     metrics: {
         authRequired: false,
     },
-    react: {
-        appDir: "test/app",
-    },
 });
 
 export default conf;

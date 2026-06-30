@@ -10,6 +10,8 @@ const { Route } = RouteDecorators;
 // more-specific prefix patterns priority over /* regardless of registration order).
 @Route("/app/*")
 export class AppRouter extends ReactRoute {
+    protected readonly appDir: string = "test/app";
+
     protected override async fetchProps(req: HttpRequest): Promise<any> {
         // Return empty object for all other pages so their own fetchProps win.
         return {};
