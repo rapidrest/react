@@ -32,9 +32,6 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Build docs
-        run: yarn docs
-
       - name: Lint
         run: yarn lint
 

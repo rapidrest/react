@@ -40,9 +40,6 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Build Docs
-        run: yarn docs
-
       - name: Publish to npm
         env:
           YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
