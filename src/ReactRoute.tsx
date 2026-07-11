@@ -63,11 +63,23 @@ export class ReactRoute {
     /** Opt-in client-side hydration. When true, wraps the page in a hydration root and injects the client bundle. */
     protected readonly hydrate: boolean = false;
 
+    /**
+     * Allow-list of `req.user` field names exposed as `props.user`. Default `null` means no
+     * `user` object is exposed to pages or the hydration payload — only the scalar `userUid` is
+     * passed. Opt in per-subclass, e.g. `protected readonly userFields = ["uid", "email"];`.
+     */
+    protected readonly userFields: string[] | null = null;
+
     /** DOM element id for the React hydration root. */
     protected readonly hydrateRootId: string = "react-root";
 
     /** DOM element id for the serialized props `<script>` tag. */
     protected readonly hydratePropsId: string = "react-props";
+
+    /** Hard cap on concurrent dev-reload SSE connections per route instance. */
+    protected readonly maxDevReloadConnections: number = 100;
+
+    private devReloadConnectionCount = 0;
 
     /**
      * Path to Vite's manifest.json for resolving content-hashed bundle URLs.
@@ -124,7 +136,7 @@ export class ReactRoute {
         }
 
         // Dev: watch manifest file and signal connected browsers to reload after each build
-        if (process.env.NODE_ENV !== "production" && manifestPath) {
+        if (this.isDevMode() && manifestPath) {
             let debounce: ReturnType<typeof setTimeout> | null = null;
             try {
                 fs.watch(manifestPath, { persistent: false }, () => {
@@ -165,10 +177,29 @@ export class ReactRoute {
     }
 
     /**
-     * Computes a stable per-request cache key (MD5 of path + params + user identity).
+     * Produces a stable, key-order-independent representation of req.query for cache-key hashing.
+     * Sorting only the top-level keys (not array element order) avoids new collisions between
+     * semantically different multi-value query strings while eliminating key-order nondeterminism.
+     */
+    protected canonicalizeQuery(query: Record<string, string | string[]> | undefined): Record<string, string | string[]> {
+        if (!query) return {};
+        const sorted: Record<string, string | string[]> = {};
+        for (const key of Object.keys(query).sort()) {
+            sorted[key] = query[key];
+        }
+        return sorted;
+    }
+
+    /**
+     * Computes a stable per-request cache key (MD5 of path + params + query + user identity).
      */
     protected hashRequest(req: HttpRequest): string {
-        const key = "static." + JSON.stringify({ path: req.path, params: req.params, userUid: req.user?.uid });
+        const key = "static." + JSON.stringify({
+            path: req.path,
+            params: req.params,
+            query: this.canonicalizeQuery(req.query),
+            userUid: req.user?.uid,
+        });
         let hash = _hashCache.get(key);
         if (!hash) {
             hash = crypto.createHash("md5").update(key).digest("hex");
@@ -176,6 +207,17 @@ export class ReactRoute {
             _hashCache.set(key, hash);
         }
         return hash;
+    }
+
+    /**
+     * Whether dev-only behaviors (live-reload SSE endpoint, reload script injection, manifest
+     * file-watching) are enabled. Explicit allow-list rather than `!== "production"` so an unset
+     * or misconfigured NODE_ENV in a real deployment fails closed (dev features OFF) instead of
+     * failing open. Override in a subclass to opt a non-standard environment name into dev mode.
+     */
+    protected isDevMode(): boolean {
+        const env = process.env.NODE_ENV;
+        return env === "development" || env === "test" || !!process.env.VITEST || !!process.env.JEST_WORKER_ID;
     }
 
     /**
@@ -230,7 +272,7 @@ export class ReactRoute {
             : req.path;
 
         // Dev SSE live-reload stream — held at <prefix>/__rapidrest__/reload
-        if (process.env.NODE_ENV !== "production" && pageSegment === DEV_RELOAD_PATH) {
+        if (this.isDevMode() && pageSegment === DEV_RELOAD_PATH) {
             this.handleDevReload(res);
             return;
         }
@@ -279,7 +321,14 @@ export class ReactRoute {
             const pageProps = pageFetchProps ? await pageFetchProps(req) : {};
             const serviceProps = service ? await service.fetchProps(req) : {};
             const routeProps = (await this.fetchProps(req)) ?? {};
-            const props = { user: req.user, userUid: req.user?.uid, ...pageProps, ...serviceProps, ...routeProps };
+            const exposedUser = this.pickUserFields(req.user);
+            const props = {
+                userUid: req.user?.uid,
+                ...(exposedUser !== undefined ? { user: exposedUser } : {}),
+                ...pageProps,
+                ...serviceProps,
+                ...routeProps,
+            };
 
             const Layout = this.layout;
             const content = this.hydrate
@@ -295,6 +344,12 @@ export class ReactRoute {
             this.logger.error(`[ReactRoute] SSR error for "${req.path}":`, err);
             httpStatus = 500;
 
+            // Never forward the raw Error to the client in production — message/stack may
+            // contain file paths or internal details. Full detail still reaches the log above.
+            const safeErr = process.env.NODE_ENV === "production"
+                ? { name: "Error", message: "Internal Server Error" }
+                : err;
+
             const errorPath = this.resolveAppFile(this.appDir, "_500");
             if (errorPath) {
                 try {
@@ -303,8 +358,8 @@ export class ReactRoute {
                     const Layout = this.layout;
                     html = renderToString(
                         Layout
-                            ? <Layout><ErrorPage error={err} /></Layout>
-                            : <ErrorPage error={err} />
+                            ? <Layout><ErrorPage error={safeErr} /></Layout>
+                            : <ErrorPage error={safeErr} />
                     );
                 } catch {
                     html = "<html><head></head><body><h1>500 Internal Server Error</h1></body></html>";
@@ -315,7 +370,7 @@ export class ReactRoute {
         }
 
         // Inject dev live-reload script
-        if (process.env.NODE_ENV !== "production") {
+        if (this.isDevMode()) {
             html = this.injectDevReloadScript(html);
         }
 
@@ -343,6 +398,19 @@ export class ReactRoute {
     }
 
     /**
+     * Picks the `userFields` allow-list out of `user`. Returns `undefined` (meaning: don't expose
+     * a `user` prop at all) when there's no user or no allow-list configured.
+     */
+    protected pickUserFields(user: any): Record<string, any> | undefined {
+        if (!user || !this.userFields) return undefined;
+        const picked: Record<string, any> = {};
+        for (const field of this.userFields) {
+            if (field in user) picked[field] = user[field];
+        }
+        return picked;
+    }
+
+    /**
      * Returns additional props merged into the page component props.
      * Override in subclasses to provide DI-injected server-side data.
      * Page-file `fetchProps` runs first; this override runs after and takes precedence.
@@ -354,6 +422,13 @@ export class ReactRoute {
     // --- Dev live-reload ---
 
     private handleDevReload(res: HttpResponse): void {
+        if (this.devReloadConnectionCount >= this.maxDevReloadConnections) {
+            (res as any).status?.(503);
+            (res as any).send?.("");
+            return;
+        }
+        this.devReloadConnectionCount++;
+
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Access-Control-Allow-Origin", "*");
@@ -365,7 +440,10 @@ export class ReactRoute {
         const onReload = () => (res as any).write?.("data: reload\n\n");
         _devReloadEmitter.on("reload", onReload);
         // onAbort fans out alongside the existing _aborted tracking in UWSResponse.
-        (res as any).onAbort?.(() => _devReloadEmitter.off("reload", onReload));
+        (res as any).onAbort?.(() => {
+            _devReloadEmitter.off("reload", onReload);
+            this.devReloadConnectionCount--;
+        });
         // Do NOT call res.end() — the SSE stream stays open.
     }
 
@@ -415,9 +493,20 @@ export class ReactRoute {
         );
     }
 
+    /**
+     * Escapes a JSON string for safe embedding inside an inline <script> element. Replacing every
+     * `<` (not just the literal substring "</script>") blocks the full HTML end-tag-open grammar
+     * (`</script` followed by whitespace, `/`, or `>`), which a substring match on "</script>" alone
+     * does not. JSON.stringify never emits a bare `<` outside of string content, so this is safe
+     * and `JSON.parse` treats `<` identically to `<`, so it round-trips losslessly.
+     */
+    protected escapeForInlineScript(json: string): string {
+        return json.replace(/</g, "\\u003c");
+    }
+
     private injectHydrationAssets(html: string, props: any, pagePath: string): string {
         const { js, css } = this.resolveClientUrls(pagePath);
-        const safeProps = JSON.stringify(props ?? null).replace(/<\/script>/gi, "<\\/script>");
+        const safeProps = this.escapeForInlineScript(JSON.stringify(props ?? null));
         const propsTag = `<script type="application/json" id="${this.hydratePropsId}">${safeProps}</script>`;
         const cssLinks = css.map((href) => `<link rel="stylesheet" href="${href}">`).join("");
         const bundleTag = `<script type="module" src="${js}"></script>`;

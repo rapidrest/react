@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="15" failures="0" errors="0" time="0.1072345">
-    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-07-11T06:14:19.016Z" hostname="Jane" tests="15" failures="0" errors="0" skipped="0" time="0.1072345">
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0371745">
+<testsuites name="vitest tests" tests="33" failures="0" errors="0" time="0.1263718">
+    <testsuite name="test/cli.validate.test.ts" timestamp="2026-07-11T17:52:44.458Z" hostname="Jane" tests="3" failures="0" errors="0" skipped="0" time="0.0025073">
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Accepts normal relative/absolute paths, including ones with spaces." time="0.001252">
+        </testcase>
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects shell metacharacters." time="0.0001894">
+        </testcase>
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects an empty string." time="0.0000761">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-07-11T17:52:44.461Z" hostname="Jane" tests="30" failures="0" errors="0" skipped="0" time="0.1238645">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0347566">
             <system-out>
-2026-07-11T06:14:18.851Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-07-11T17:52:44.096Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
             <system-err>
@@ -11,57 +19,109 @@ Your app (or one of its dependencies) is using an outdated JSX transform. Update
 
             </system-err>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0037406">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0031915">
             <system-out>
-2026-07-11T06:14:18.875Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-07-11T17:52:44.118Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0095788">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0073689">
             <system-out>
-2026-07-11T06:14:18.879Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
+2026-07-11T17:52:44.121Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0082129">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0081621">
             <system-out>
-2026-07-11T06:14:18.888Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
+2026-07-11T17:52:44.128Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0074659">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.007025">
             <system-out>
-2026-07-11T06:14:18.897Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
+2026-07-11T17:52:44.136Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0029738">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0025349">
             <system-out>
-2026-07-11T06:14:18.904Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-07-11T17:52:44.143Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0072967">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0064314">
             <system-out>
-2026-07-11T06:14:18.907Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
+2026-07-11T17:52:44.146Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 for a path traversal attempt via the HTTP layer and never leaks file contents." time="0.0018585">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 for a path traversal attempt via the HTTP layer and never leaks file contents." time="0.0041688">
+            <system-out>
+2026-07-11T17:52:44.152Z [34mdebug[39m: No resource could be found with the specified identifier.
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a page file that exists within the app directory." time="0.000317">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Renders the full error message on a 500 outside of production." time="0.0118131">
+            <system-out>
+2026-07-11T17:52:44.157Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
+
+2026-07-11T17:52:44.162Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a nested page file using the index convention." time="0.0002203">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Redacts the error message on a 500 in production." time="0.0040371">
+            <system-out>
+2026-07-11T17:52:44.169Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
+
+2026-07-11T17:52:44.170Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a segment with no matching file." time="0.0001475">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Does not expose the dev-reload script or SSE endpoint when NODE_ENV is misconfigured." time="0.0031493">
+            <system-out>
+2026-07-11T17:52:44.173Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+
+2026-07-11T17:52:44.174Z [34mdebug[39m: [ReactRoute] Rendering &quot;/__rapidrest__/reload&quot;
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a path traversal attempt that escapes the app directory." time="0.0000841">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a page file that exists within the app directory." time="0.000245">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a deep path traversal attempt reaching outside the project." time="0.0000632">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a nested page file using the index convention." time="0.0001853">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a traversal attempt that only partially matches the app dir prefix." time="0.000068">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a segment with no matching file." time="0.0001766">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Still resolves segments that legitimately stay within the app directory after normalization." time="0.0001557">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a path traversal attempt that escapes the app directory." time="0.0000871">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a deep path traversal attempt reaching outside the project." time="0.0000792">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a traversal attempt that only partially matches the app dir prefix." time="0.0000699">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Still resolves segments that legitimately stay within the app directory after normalization." time="0.0001614">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces different hashes for requests differing only in query." time="0.0007133">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces the same hash regardless of query key order." time="0.0001019">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Does not throw when query is undefined and matches an empty query." time="0.00009">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Removes every &apos;&lt;&apos; character, subsuming the exact literal &apos;&lt;/script&gt;&apos; case." time="0.0000887">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Blocks the whitespace-variant &lt;/script&gt; bypass that a literal-match regex misses." time="0.0000686">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Round-trips through JSON.parse without data loss." time="0.0002039">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined by default (no userFields configured) even when a user is present." time="0.0001266">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns only the allow-listed fields when userFields is configured." time="0.0001675">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined when there is no user, regardless of userFields." time="0.0001004">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is false for an unset or non-standard NODE_ENV (fail closed)." time="0.0002358">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true for &apos;development&apos; and &apos;test&apos;." time="0.0001347">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true when VITEST is set, regardless of NODE_ENV." time="0.000108">
         </testcase>
     </testsuite>
 </testsuites>

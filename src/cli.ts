@@ -2,9 +2,11 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import spawn from "cross-spawn";
+import { isSafePathArg } from "./cli/validate.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -18,7 +20,7 @@ function isAvailable(name: string): boolean {
 }
 
 function spawnProcess(cmd: string, cmdArgs: string[]): ChildProcess {
-    const proc = spawn(cmd, cmdArgs, { stdio: "inherit", shell: process.platform === "win32" });
+    const proc = spawn(cmd, cmdArgs, { stdio: "inherit" });
     proc.on("error", (err) => {
         console.error(`[rapidreact] Failed to start "${cmd}": ${err.message}`);
         process.exit(1);
@@ -79,12 +81,16 @@ function findServerEntry(): string {
 switch (command) {
     case "dev": {
         const serverEntry = args[0] ?? findServerEntry();
+        if (!isSafePathArg(serverEntry)) {
+            console.error(`[rapidreact] Invalid server entry path: "${serverEntry}"`);
+            process.exit(1);
+        }
         console.log("[rapidreact] Starting in development mode...");
 
         // Prefer nodemon for clean process restarts; fall back to tsx --watch
         const useNodemon = isAvailable("nodemon");
         const serverWatcher: [string, string[]] = useNodemon
-            ? ["nodemon", ["--exec", `tsx ${serverEntry}`, "--watch", "src", "--watch", "apps", "--ext", "ts,tsx,json"]]
+            ? ["nodemon", ["--exec", "tsx", "--watch", "src", "--watch", "apps", "--ext", "ts,tsx,json", serverEntry]]
             : ["tsx", ["--watch", serverEntry]];
 
         console.log(`  Server: ${useNodemon ? `nodemon --exec "tsx ${serverEntry}"` : `tsx --watch ${serverEntry}`}`);
@@ -96,6 +102,10 @@ switch (command) {
 
     case "build": {
         const tsconfigArg = args[0] ?? "tsconfig.json";
+        if (!isSafePathArg(tsconfigArg)) {
+            console.error(`[rapidreact] Invalid tsconfig path: "${tsconfigArg}"`);
+            process.exit(1);
+        }
         const clientTsconfig = "tsconfig.client.json";
         const hasClientTsconfig = fs.existsSync(path.join(process.cwd(), clientTsconfig));
         console.log("[rapidreact] Building for production...");
