@@ -542,7 +542,7 @@ __metadata:
   resolution: "@rapidrest/react@workspace:."
   dependencies:
     "@rapidrest/core": "npm:^1.3.0"
-    "@rapidrest/service-core": "npm:1.0.0-rc.18"
+    "@rapidrest/service-core": "npm:1.0.0-rc.21"
     "@swc/core": "npm:^1.15.41"
     "@types/node": "npm:^25.9.2"
     "@typescript-eslint/eslint-plugin": "npm:^8.61.0"
@@ -595,9 +595,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@rapidrest/service-core@npm:1.0.0-rc.18":
-  version: 1.0.0-rc.18
-  resolution: "@rapidrest/service-core@npm:1.0.0-rc.18"
+"@rapidrest/service-core@npm:1.0.0-rc.21":
+  version: 1.0.0-rc.21
+  resolution: "@rapidrest/service-core@npm:1.0.0-rc.21"
   dependencies:
     axios: "npm:^1.17.0"
     dayjs: "npm:^1.11.21"
@@ -624,7 +624,7 @@ __metadata:
       optional: true
     typeorm:
       optional: true
-  checksum: 10c0/f6d7e333aaa0efafac1e7627d9b74ba892fe64ce235fdb69bec124169ffa032264d3037bae18132fe3fadf59e50752f1037f6a9935c412dc88637ec8eef31d53
+  checksum: 10c0/66141e1cc1b6f2e1c9dde2d94af6f9e1b29a3ec36be4cf8a2d7786df54827b5fc9679eefaf6ca82bb7b64034096efbef7961fa8f6440dfdc4ceec11c9bc4b190
   languageName: node
   linkType: hard
 
