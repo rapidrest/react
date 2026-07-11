@@ -184,19 +184,34 @@ export class ReactRoute {
      * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
      */
     protected resolveAppFile(appDir: string, segment: string): string | null {
-        const appRoot = path.resolve(process.cwd(), appDir);
-        const base = path.resolve(appRoot, segment.replace(/^\//, ""));
-
-        // Reject any segment that resolves outside of the app directory (e.g. via "../" traversal).
-        if (base !== appRoot && !base.startsWith(appRoot + path.sep)) {
+        const tryDir = (dir: string, suffixes: string[]): string | null => {
+            const appRoot = path.resolve(process.cwd(), dir);
+            const base = path.resolve(appRoot, segment.replace(/^\//, ""));
+            if (base !== appRoot && !base.startsWith(appRoot + path.sep)) return null;
+            for (const suffix of suffixes) {
+                const full = base + suffix;
+                if (fs.existsSync(full)) return full;
+            }
             return null;
+        };
+
+        // Detect whether we're running under a TypeScript transformer (tsx/ts-node).
+        // If the main entry point is a .ts/.tsx file, tsx is handling imports and
+        // can load .tsx page files directly. Otherwise (compiled .js entry), only
+        // .js files are safe to import — look in appDir then dist/appDir.
+        const mainEntry = process.argv[1] ?? "";
+        const hasTsxContext = mainEntry.endsWith(".ts") || mainEntry.endsWith(".tsx");
+
+        if (!hasTsxContext) {
+            const jsSuffixes = [".js", "/index.js"];
+            return (
+                tryDir(appDir, jsSuffixes) ??
+                tryDir(path.join("dist", appDir), jsSuffixes)
+            );
         }
 
-        for (const suffix of [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]) {
-            const full = base + suffix;
-            if (fs.existsSync(full)) return full;
-        }
-        return null;
+        // In dev (tsx) all TypeScript extensions are handled natively.
+        return tryDir(appDir, [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]);
     }
 
     @Get("/*")

@@ -84,7 +84,7 @@ switch (command) {
         // Prefer nodemon for clean process restarts; fall back to tsx --watch
         const useNodemon = isAvailable("nodemon");
         const serverWatcher: [string, string[]] = useNodemon
-            ? ["nodemon", ["--exec", `tsx ${serverEntry}`, "--watch", "src", "--watch", "app", "--ext", "ts,tsx,json"]]
+            ? ["nodemon", ["--exec", `tsx ${serverEntry}`, "--watch", "src", "--watch", "apps", "--ext", "ts,tsx,json"]]
             : ["tsx", ["--watch", serverEntry]];
 
         console.log(`  Server: ${useNodemon ? `nodemon --exec "tsx ${serverEntry}"` : `tsx --watch ${serverEntry}`}`);
@@ -96,13 +96,16 @@ switch (command) {
 
     case "build": {
         const tsconfigArg = args[0] ?? "tsconfig.json";
+        const clientTsconfig = "tsconfig.client.json";
+        const hasClientTsconfig = fs.existsSync(path.join(process.cwd(), clientTsconfig));
         console.log("[rapidreact] Building for production...");
         console.log(`  Server: tsc -p ${tsconfigArg}`);
+        if (hasClientTsconfig) console.log(`  Pages:  tsc -p ${clientTsconfig}`);
         console.log("  Client: vite build");
-        runSequential([
-            ["tsc", ["-p", tsconfigArg]],
-            ["vite", ["build"]],
-        ]).catch((err) => {
+        const steps: Array<[string, string[]]> = [["tsc", ["-p", tsconfigArg]]];
+        if (hasClientTsconfig) steps.push(["tsc", ["-p", clientTsconfig]]);
+        steps.push(["vite", ["build"]]);
+        runSequential(steps).catch((err) => {
             console.error(`[rapidreact] Build failed: ${err.message}`);
             process.exit(1);
         });
