@@ -184,7 +184,14 @@ export class ReactRoute {
      * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
      */
     protected resolveAppFile(appDir: string, segment: string): string | null {
-        const base = path.resolve(process.cwd(), appDir, segment.replace(/^\//, ""));
+        const appRoot = path.resolve(process.cwd(), appDir);
+        const base = path.resolve(appRoot, segment.replace(/^\//, ""));
+
+        // Reject any segment that resolves outside of the app directory (e.g. via "../" traversal).
+        if (base !== appRoot && !base.startsWith(appRoot + path.sep)) {
+            return null;
+        }
+
         for (const suffix of [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]) {
             const full = base + suffix;
             if (fs.existsSync(full)) return full;
