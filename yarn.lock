@@ -514,9 +514,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@rapidrest/core@npm:^1.3.0":
-  version: 1.3.0
-  resolution: "@rapidrest/core@npm:1.3.0"
+"@rapidrest/core@npm:^1.4.0":
+  version: 1.4.0
+  resolution: "@rapidrest/core@npm:1.4.0"
   dependencies:
     form-data: "npm:^4.0.5"
     handlebars: "npm:^4.7.9"
@@ -524,7 +524,6 @@ __metadata:
     jsonwebtoken: "npm:^9.0.3"
     jszip: "npm:^3.10.1"
     mkdirp: "npm:^3.0.1"
-    readline: "npm:^1.3.0"
     triple-beam: "npm:^1.4.1"
     uuid: "npm:^14.0.0"
     validator: "npm:^13.15.35"
@@ -533,7 +532,7 @@ __metadata:
     reflect-metadata: 0.2.x
     winston: 3.x
     winston-transport: 4.x
-  checksum: 10c0/c5c781bd13c6da9fb27ce0f47ab9d84faf241c0f73fa49f63645f816fa08a7b6d353cd11f3276300471b17cc578f1218277397e0c3da4e3c21c834ef45bf1255
+  checksum: 10c0/f185a8f6162ed834f74235c104ff00b589dd139491d9ef6cf9884cb652e6a486d6ccbe980b4bbbf700ebf9011409a318f7c56dbf8d2d3e26216d4b73335a99ce
   languageName: node
   linkType: hard
 
@@ -541,8 +540,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@rapidrest/react@workspace:."
   dependencies:
-    "@rapidrest/core": "npm:^1.3.0"
-    "@rapidrest/service-core": "npm:1.0.0-rc.21"
+    "@rapidrest/core": "npm:^1.4.0"
+    "@rapidrest/service-core": "npm:1.0.0-rc.22"
     "@swc/core": "npm:^1.15.41"
     "@types/cross-spawn": "npm:^6.0.6"
     "@types/node": "npm:^25.9.2"
@@ -597,9 +596,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@rapidrest/service-core@npm:1.0.0-rc.21":
-  version: 1.0.0-rc.21
-  resolution: "@rapidrest/service-core@npm:1.0.0-rc.21"
+"@rapidrest/service-core@npm:1.0.0-rc.22":
+  version: 1.0.0-rc.22
+  resolution: "@rapidrest/service-core@npm:1.0.0-rc.22"
   dependencies:
     axios: "npm:^1.17.0"
     dayjs: "npm:^1.11.21"
@@ -626,7 +625,7 @@ __metadata:
       optional: true
     typeorm:
       optional: true
-  checksum: 10c0/66141e1cc1b6f2e1c9dde2d94af6f9e1b29a3ec36be4cf8a2d7786df54827b5fc9679eefaf6ca82bb7b64034096efbef7961fa8f6440dfdc4ceec11c9bc4b190
+  checksum: 10c0/da69cb8637d15fb8fbde9cf85defbb2d9b9b828ae8f5ab4048bcf2a078c0add46d951ec4c2bea84e9c9c94f9606a1c38576687e7ab4625df124e96473f00e7b3
   languageName: node
   linkType: hard
 
@@ -4227,13 +4226,6 @@ __metadata:
     string_decoder: "npm:~1.1.1"
     util-deprecate: "npm:~1.0.1"
   checksum: 10c0/7efdb01f3853bc35ac62ea25493567bf588773213f5f4a79f9c365e1ad13bab845ac0dae7bc946270dc40c3929483228415e92a3fc600cc7e4548992f41ee3fa
-  languageName: node
-  linkType: hard
-
-"readline@npm:^1.3.0":
-  version: 1.3.0
-  resolution: "readline@npm:1.3.0"
-  checksum: 10c0/7404c9edc3fd29430221ef1830867c8d87e50612e4ce70f84ecd55686f7db1c81d67c6a4dcb407839f4c459ad05dd34524a2c7a97681e91878367c68d0e38665
   languageName: node
   linkType: hard
 
