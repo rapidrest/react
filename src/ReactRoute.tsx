@@ -195,12 +195,18 @@ export class ReactRoute {
             return null;
         };
 
-        // Detect whether we're running under a TypeScript transformer (tsx/ts-node).
-        // If the main entry point is a .ts/.tsx file, tsx is handling imports and
-        // can load .tsx page files directly. Otherwise (compiled .js entry), only
-        // .js files are safe to import — look in appDir then dist/appDir.
+        // Detect whether we're running under a TypeScript transformer (tsx/ts-node),
+        // or a test runner that transforms TS/JSX itself (Vitest, Jest). In either case
+        // .tsx page files can be loaded directly. Otherwise (compiled .js entry with a
+        // plain node runtime), only .js files are safe to import — look in appDir then
+        // dist/appDir. We can't rely on NODE_ENV here — it's not guaranteed to be set to
+        // "production" for every plain-node deployment, and test runners set it inconsistently.
         const mainEntry = process.argv[1] ?? "";
-        const hasTsxContext = mainEntry.endsWith(".ts") || mainEntry.endsWith(".tsx");
+        const hasTsxContext =
+            mainEntry.endsWith(".ts") ||
+            mainEntry.endsWith(".tsx") ||
+            process.env.VITEST === "true" ||
+            !!process.env.JEST_WORKER_ID;
 
         if (!hasTsxContext) {
             const jsSuffixes = [".js", "/index.js"];
