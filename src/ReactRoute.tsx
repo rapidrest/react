@@ -156,6 +156,11 @@ export class ReactRoute {
 
         // Scan the class loader for all classes that have been marked with @ReactService.
         this.objectFactory?.classes.forEach(async (clazz, name) => {
+            // Ignore all non-class types
+            if (!clazz?.prototype) {
+                return;
+            }
+
             let routePaths: string[] | undefined = Reflect.getMetadata("rrst:reactServicePaths", clazz.prototype);
             if (routePaths) {
                 this.logger.debug(`Found react service. Name=${name}, Paths=${routePaths}`);
