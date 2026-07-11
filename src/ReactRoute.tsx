@@ -25,20 +25,6 @@ _devReloadEmitter.setMaxListeners(200);
 const DEV_RELOAD_PATH = "/__rapidrest__/reload";
 
 /**
- * Resolve a file in the app directory by trying multiple extensions in order.
- * Tries .tsx → /index.tsx → .jsx → /index.jsx → .js → /index.js.
- * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
- */
-function resolveAppFile(appDir: string, segment: string): string | null {
-    const base = path.resolve(process.cwd(), appDir, segment.replace(/^\//, ""));
-    for (const suffix of [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]) {
-        const full = base + suffix;
-        if (fs.existsSync(full)) return full;
-    }
-    return null;
-}
-
-/**
  * Base class for HTTP routes that serve React pages from the `app/` directory.
  *
  * Convention-based page routing:
@@ -192,6 +178,20 @@ export class ReactRoute {
         return hash;
     }
 
+    /**
+     * Resolve a file in the app directory by trying multiple extensions in order.
+     * Tries .tsx → /index.tsx → .jsx → /index.jsx → .js → /index.js.
+     * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
+     */
+    protected resolveAppFile(appDir: string, segment: string): string | null {
+        const base = path.resolve(process.cwd(), appDir, segment.replace(/^\//, ""));
+        for (const suffix of [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]) {
+            const full = base + suffix;
+            if (fs.existsSync(full)) return full;
+        }
+        return null;
+    }
+
     @Get()
     @ContentType("text/html")
     public async get(@Request req: HttpRequest, @Response res: HttpResponse) {
@@ -219,7 +219,7 @@ export class ReactRoute {
 
         // Lazy-load the global layout on first request
         if (!this.layout) {
-            const layoutPath = resolveAppFile(this.appDir, "_layout");
+            const layoutPath = this.resolveAppFile(this.appDir, "_layout");
             if (layoutPath) {
                 const layoutMod = await import(pathToFileURL(layoutPath).href);
                 this.layout = layoutMod.default;
@@ -227,10 +227,10 @@ export class ReactRoute {
         }
 
         // Resolve page file — fall back to _404 when path has no matching file
-        let pagePath = resolveAppFile(this.appDir, pageSegment);
+        let pagePath = this.resolveAppFile(this.appDir, pageSegment);
         let httpStatus = 200;
         if (!pagePath) {
-            pagePath = resolveAppFile(this.appDir, "_404");
+            pagePath = this.resolveAppFile(this.appDir, "_404");
             httpStatus = 404;
         }
 
@@ -267,7 +267,7 @@ export class ReactRoute {
             this.logger.error(`[ReactRoute] SSR error for "${req.path}":`, err);
             httpStatus = 500;
 
-            const errorPath = resolveAppFile(this.appDir, "_500");
+            const errorPath = this.resolveAppFile(this.appDir, "_500");
             if (errorPath) {
                 try {
                     const errMod = await import(pathToFileURL(errorPath).href);
@@ -326,15 +326,18 @@ export class ReactRoute {
     // --- Dev live-reload ---
 
     private handleDevReload(res: HttpResponse): void {
-        const r = res as any;
-        r.writeHeader("Content-Type", "text/event-stream");
-        r.writeHeader("Cache-Control", "no-cache");
-        r.writeHeader("Access-Control-Allow-Origin", "*");
-        r.write(": connected\n\n");
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        // Flush headers immediately — SSE requires the response to stay open.
+        // flushHeaders/write/onAbort are provided by UWSResponse for streaming support.
+        (res as any).flushHeaders?.();
+        (res as any).write?.(": connected\n\n");
 
-        const onReload = () => r.write("data: reload\n\n");
+        const onReload = () => (res as any).write?.("data: reload\n\n");
         _devReloadEmitter.on("reload", onReload);
-        r.onAborted?.(() => _devReloadEmitter.off("reload", onReload));
+        // onAbort fans out alongside the existing _aborted tracking in UWSResponse.
+        (res as any).onAbort?.(() => _devReloadEmitter.off("reload", onReload));
         // Do NOT call res.end() — the SSE stream stays open.
     }
 

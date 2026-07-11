@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
 import config from "./config";
-import { request } from "@rapidrest/service-core/dist/lib/test/request.js";
+import { request } from "@rapidrest/service-core/test";
 import { Server, ObjectFactory } from "@rapidrest/service-core";
 import { Logger } from "@rapidrest/core";
 
@@ -12,7 +12,7 @@ const UI_BASE = "/app";
 describe("ReactRoute Tests", () => {
     const logger = Logger();
     const objectFactory: ObjectFactory = new ObjectFactory(config, logger);
-    const server: Server = new Server(config, "./test/server", logger, objectFactory);
+    const server: Server = new Server({ config, basePath: "./test/server", logger, objectFactory });
 
     beforeAll(async () => {
         await server.start();

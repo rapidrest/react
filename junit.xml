@@ -1,98 +1,51 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="7" failures="7" errors="0" time="3.133231">
-    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-07-10T03:48:37.945Z" hostname="Jane" tests="7" failures="7" errors="0" skipped="0" time="3.133231">
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.4335695">
-            <failure message="expected 404 to be less than 300" type="AssertionError">
-AssertionError: expected 404 to be less than 300
- ❯ test/ReactRoute.test.ts:31:31
-            </failure>
+<testsuites name="vitest tests" tests="7" failures="0" errors="0" time="0.1348345">
+    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-07-11T03:16:06.824Z" hostname="Jane" tests="7" failures="0" errors="0" skipped="0" time="0.1348345">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0372349">
+            <system-out>
+2026-07-11T03:16:06.671Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+
+            </system-out>
+            <system-err>
+Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform
+
+            </system-err>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.4306306">
-            <failure message="expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to match /^&lt;html&gt;/" type="AssertionError">
-AssertionError: expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to match /^&lt;html&gt;/
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0054331">
+            <system-out>
+2026-07-11T03:16:06.698Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
-- Expected:
-/^&lt;html&gt;/
-
-+ Received:
-&quot;&lt;!DOCTYPE html&gt;
-&lt;html lang=\&quot;en\&quot;&gt;
-&lt;head&gt;
-&lt;meta charset=\&quot;utf-8\&quot;&gt;
-&lt;title&gt;Error&lt;/title&gt;
-&lt;/head&gt;
-&lt;body&gt;
-&lt;pre&gt;Cannot GET /app/&lt;/pre&gt;
-&lt;/body&gt;
-&lt;/html&gt;
-&quot;
-
- ❯ test/ReactRoute.test.ts:38:29
-            </failure>
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.432562">
-            <failure message="expected 404 to be less than 300" type="AssertionError">
-AssertionError: expected 404 to be less than 300
- ❯ test/ReactRoute.test.ts:45:31
-            </failure>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0069066">
+            <system-out>
+2026-07-11T03:16:06.701Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.4170167">
-            <failure message="expected 404 to be less than 300" type="AssertionError">
-AssertionError: expected 404 to be less than 300
- ❯ test/ReactRoute.test.ts:53:31
-            </failure>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0069638">
+            <system-out>
+2026-07-11T03:16:06.708Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.4594554">
-            <failure message="expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to contain &apos;Page not found&apos;" type="AssertionError">
-AssertionError: expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to contain &apos;Page not found&apos;
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0072575">
+            <system-out>
+2026-07-11T03:16:06.715Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
 
-- Expected
-+ Received
-
-- Page not found
-+ &lt;!DOCTYPE html&gt;
-+ &lt;html lang=&quot;en&quot;&gt;
-+ &lt;head&gt;
-+ &lt;meta charset=&quot;utf-8&quot;&gt;
-+ &lt;title&gt;Error&lt;/title&gt;
-+ &lt;/head&gt;
-+ &lt;body&gt;
-+ &lt;pre&gt;Cannot GET /app/does-not-exist&lt;/pre&gt;
-+ &lt;/body&gt;
-+ &lt;/html&gt;
-+
-
- ❯ test/ReactRoute.test.ts:61:29
-            </failure>
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.4215733">
-            <failure message="expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to contain &apos;__rapidrest__/reload&apos;" type="AssertionError">
-AssertionError: expected &apos;&lt;!DOCTYPE html&gt;\n&lt;html lang=&quot;en&quot;&gt;\n&lt;h…&apos; to contain &apos;__rapidrest__/reload&apos;
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0032523">
+            <system-out>
+2026-07-11T03:16:06.722Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
-- Expected
-+ Received
-
-- __rapidrest__/reload
-+ &lt;!DOCTYPE html&gt;
-+ &lt;html lang=&quot;en&quot;&gt;
-+ &lt;head&gt;
-+ &lt;meta charset=&quot;utf-8&quot;&gt;
-+ &lt;title&gt;Error&lt;/title&gt;
-+ &lt;/head&gt;
-+ &lt;body&gt;
-+ &lt;pre&gt;Cannot GET /app/&lt;/pre&gt;
-+ &lt;/body&gt;
-+ &lt;/html&gt;
-+
-
- ❯ test/ReactRoute.test.ts:66:29
-            </failure>
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.4328606">
-            <failure message="expected 404 to be less than 300" type="AssertionError">
-AssertionError: expected 404 to be less than 300
- ❯ test/ReactRoute.test.ts:72:31
-            </failure>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0073676">
+            <system-out>
+2026-07-11T03:16:06.725Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
+
+            </system-out>
         </testcase>
     </testsuite>
 </testsuites>
