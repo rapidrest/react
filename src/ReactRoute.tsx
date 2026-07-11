@@ -199,7 +199,7 @@ export class ReactRoute {
         return null;
     }
 
-    @Get()
+    @Get("/*")
     @ContentType("text/html")
     public async get(@Request req: HttpRequest, @Response res: HttpResponse) {
         // Strip the route prefix (e.g. "/app" from "/app/pets" → "/pets") so the page
