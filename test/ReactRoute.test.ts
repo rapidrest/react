@@ -1,6 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
+import path from "path";
 import config from "./config";
 import { request } from "@rapidrest/service-core/test";
 import { Server, ObjectFactory, HttpRequest } from "@rapidrest/service-core";
@@ -46,6 +47,14 @@ class TestableReactRoute extends ReactRoute {
 
     public callIsDevMode(): boolean {
         return this.isDevMode();
+    }
+
+    public setManifest(manifest: Record<string, { file: string; css?: string[]; name?: string }> | null): void {
+        (this as any).manifest = manifest;
+    }
+
+    public callResolveClientUrls(pagePath: string): { js: string; css: string[] } {
+        return (this as any).resolveClientUrls(pagePath);
     }
 }
 
@@ -205,6 +214,61 @@ describe("ReactRoute.resolveAppFile Tests", () => {
         const result = route.callResolveAppFile("test/app", "/../app/index");
         expect(result).not.toBeNull();
         expect(result).toMatch(/index\.tsx$/);
+    });
+});
+
+describe("ReactRoute.resolveClientUrls Tests", () => {
+    // resolveClientUrls() only consults the in-memory `manifest` field (set via setManifest here)
+    // when NODE_ENV is "production" — otherwise it re-reads manifestPath from disk on every call.
+    function withProductionManifest<T>(route: TestableReactRoute, manifest: Record<string, any>, fn: () => T): T {
+        const original = process.env.NODE_ENV;
+        process.env.NODE_ENV = "production";
+        route.setManifest(manifest);
+        // Bypasses DI (no ObjectFactory instantiation here), so @Logger never populated this field.
+        const noop = () => undefined;
+        (route as any).logger = { warn: noop, debug: noop, error: noop };
+        try {
+            return fn();
+        } finally {
+            process.env.NODE_ENV = original;
+        }
+    }
+
+    it("Resolves an entry via a direct top-level key match.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const result = withProductionManifest(route, { [entryKey]: { file: "assets/index-abc123.js" } }, () =>
+            route.callResolveClientUrls(pagePath)
+        );
+        expect(result.js).toBe("/assets/index-abc123.js");
+    });
+
+    it("Falls back to matching a manifest entry's `name` field when the top-level key is prefixed " +
+        "(e.g. Vite's virtual hydration-module key for createViteConfig() entries).", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = {
+            [`rapidrest-entry:${entryKey}`]: {
+                file: "assets/index-abc123.js",
+                name: entryKey,
+                src: `rapidrest-entry:${entryKey}`,
+                isEntry: true,
+            },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/index-abc123.js");
+    });
+
+    it("Throws when neither the direct key nor any entry's `name` field matches.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        expect(() =>
+            withProductionManifest(route, { "some/other/page.tsx": { file: "assets/other.js" } }, () =>
+                route.callResolveClientUrls(pagePath)
+            )
+        ).toThrow(/hydrate=true requires react.manifestPath/);
     });
 });
 

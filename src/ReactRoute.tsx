@@ -98,7 +98,7 @@ export class ReactRoute {
      * In development it is re-read from disk on every request so fresh bundle URLs
      * are used immediately after `vite build --watch` finishes a rebuild.
      */
-    private manifest: Record<string, { file: string; css?: string[] }> | null = null;
+    private manifest: Record<string, { file: string; css?: string[]; name?: string }> | null = null;
 
     @Inject(ObjectFactory)
     private objectFactory?: ObjectFactory;
@@ -463,7 +463,7 @@ export class ReactRoute {
 
     // --- Hydration ---
 
-    private resolveManifest(): Record<string, { file: string; css?: string[] }> | null {
+    private resolveManifest(): Record<string, { file: string; css?: string[]; name?: string }> | null {
         if (process.env.NODE_ENV === "production") return this.manifest;
         const manifestPath = this.manifestPath;
         if (!manifestPath) return null;
@@ -478,7 +478,14 @@ export class ReactRoute {
         const manifest = this.resolveManifest();
         if (manifest) {
             const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
-            const entry = manifest[entryKey];
+            // Vite derives the top-level manifest key from the entry chunk's facadeModuleId
+            // (relative-to-root, with null bytes stripped) rather than the rollup input key.
+            // The virtual hydration modules created by createViteConfig()'s plugin, that key
+            // ends up prefixed (e.g. "rapidrest-entry:app/pets.tsx") instead of matching
+            // `entryKey` directly. Each manifest entry's own `name` field, however, is always
+            // the original input key, so fall back to a value search on that field.
+            const entry =
+                manifest[entryKey] ?? Object.values(manifest).find((candidate) => candidate.name === entryKey);
             if (entry) {
                 return { js: `/${entry.file}`, css: (entry.css ?? []).map((f) => `/${f}`) };
             }
