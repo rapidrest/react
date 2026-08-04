@@ -5,21 +5,20 @@
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import spawn from "cross-spawn";
 import { isSafePathArg } from "./cli/validate.js";
 
-const [, , command, ...args] = process.argv;
-
-function resolveLocalBin(name: string): string {
+export function resolveLocalBin(name: string): string {
     const candidate = path.join(process.cwd(), "node_modules", ".bin", name);
     return fs.existsSync(candidate) ? candidate : name;
 }
 
-function isAvailable(name: string): boolean {
+export function isAvailable(name: string): boolean {
     return fs.existsSync(path.join(process.cwd(), "node_modules", ".bin", name));
 }
 
-function spawnProcess(cmd: string, cmdArgs: string[]): ChildProcess {
+export function spawnProcess(cmd: string, cmdArgs: string[]): ChildProcess {
     const proc = spawn(cmd, cmdArgs, { stdio: "inherit" });
     proc.on("error", (err) => {
         console.error(`[rapidreact] Failed to start "${cmd}": ${err.message}`);
@@ -28,7 +27,7 @@ function spawnProcess(cmd: string, cmdArgs: string[]): ChildProcess {
     return proc;
 }
 
-function runParallel(procs: Array<[string, string[]]>): void {
+export function runParallel(procs: Array<[string, string[]]>): void {
     const children = procs.map(([cmd, cmdArgs]) => spawnProcess(resolveLocalBin(cmd), cmdArgs));
 
     const shutdown = () => {
@@ -54,7 +53,7 @@ function runParallel(procs: Array<[string, string[]]>): void {
     }
 }
 
-async function runSequential(procs: Array<[string, string[]]>): Promise<void> {
+export async function runSequential(procs: Array<[string, string[]]>): Promise<void> {
     for (const [cmd, cmdArgs] of procs) {
         await new Promise<void>((resolve, reject) => {
             const child = spawnProcess(resolveLocalBin(cmd), cmdArgs);
@@ -66,7 +65,7 @@ async function runSequential(procs: Array<[string, string[]]>): Promise<void> {
     }
 }
 
-function findServerEntry(): string {
+export function findServerEntry(): string {
     const candidates = ["src/server.ts", "src/server.tsx", "src/index.ts", "src/index.tsx"];
     for (const candidate of candidates) {
         if (fs.existsSync(path.join(process.cwd(), candidate))) return candidate;
@@ -78,7 +77,9 @@ function findServerEntry(): string {
     );
 }
 
-switch (command) {
+export function run(): void {
+    const [, , command, ...args] = process.argv;
+    switch (command) {
     case "dev": {
         const serverEntry = args[0] ?? findServerEntry();
         if (!isSafePathArg(serverEntry)) {
@@ -142,4 +143,12 @@ Examples:
   rapidreact build tsconfig.server.json
 `);
         process.exit(1);
+    }
+}
+
+// Only auto-run when this file is executed directly (the `rapidreact` bin entry),
+// not when imported (e.g. by tests).
+const isMainModule = !!process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMainModule) {
+    run();
 }

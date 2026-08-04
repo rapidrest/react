@@ -261,6 +261,15 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
         expect(result.js).toBe("/assets/index-abc123.js");
     });
 
+    it("Includes css asset paths from the manifest entry when present.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = { [entryKey]: { file: "assets/index-abc123.js", css: ["assets/a.css", "assets/b.css"] } };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.css).toEqual(["/assets/a.css", "/assets/b.css"]);
+    });
+
     it("Throws when neither the direct key nor any entry's `name` field matches.", () => {
         const route = new TestableReactRoute();
         const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
@@ -328,6 +337,15 @@ describe("ReactRoute.pickUserFields Tests", () => {
         }
         const route = new ScopedRoute();
         const result = route.callPickUserFields({ uid: "1", roles: ["admin"], secret: "x" });
+        expect(result).toEqual({ uid: "1" });
+    });
+
+    it("Silently skips an allow-listed field that is not present on the user object.", () => {
+        class ScopedRoute extends TestableReactRoute {
+            protected readonly userFields = ["uid", "missing"];
+        }
+        const route = new ScopedRoute();
+        const result = route.callPickUserFields({ uid: "1" });
         expect(result).toEqual({ uid: "1" });
     });
 

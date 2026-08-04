@@ -51,8 +51,13 @@ const DEV_RELOAD_PATH = "/__rapidrest__/reload";
  * @author Jean-Philippe Steinmetz
  */
 export class ReactRoute {
+    // The decorator's emitted `design:type` metadata ternary falls back to `Object` only when
+    // `Redis` is unresolved at decoration time (e.g. a circular import); since it's a real,
+    // always-successfully-imported class here, that fallback branch is structurally unreachable.
+    /* v8 ignore start */
     @RedisConnection("cache")
     protected cacheClient?: Redis;
+    /* v8 ignore stop */
 
     /** Filesystem path to the app directory, relative to cwd. Default is `apps/app`. */
     protected readonly appDir: string = "apps/app";
@@ -100,8 +105,12 @@ export class ReactRoute {
      */
     private manifest: Record<string, { file: string; css?: string[]; name?: string }> | null = null;
 
+    // Same structurally-unreachable design:type fallback as cacheClient above — ObjectFactory is
+    // always a real, successfully-imported class here.
+    /* v8 ignore start */
     @Inject(ObjectFactory)
     private objectFactory?: ObjectFactory;
+    /* v8 ignore stop */
 
     /**
      * The URL prefix derived from `@Route` metadata at init time.
