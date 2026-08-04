@@ -560,20 +560,33 @@ export class ReactRoute {
     private resolveClientUrls(pagePath: string): { js: string; css: string[] } {
         const manifest = this.resolveManifest();
         if (manifest) {
-            const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+            const relPath = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
             // Vite derives the top-level manifest key from the entry chunk's facadeModuleId
             // (relative-to-root, with null bytes stripped) rather than the rollup input key.
             // The virtual hydration modules created by createViteConfig()'s plugin, that key
             // ends up prefixed (e.g. "rapidrest-entry:app/pets.tsx") instead of matching
             // `entryKey` directly. Each manifest entry's own `name` field, however, is always
             // the original input key, so fall back to a value search on that field.
+            //
+            // In production, `pagePath` is the *compiled* `<outDir>/**/*.js` module actually
+            // executed for SSR (see `renderPage()`'s `import()`), not the original
+            // `apps/**/*.{tsx,jsx}` source file the manifest's `name` field is derived from
+            // (e.g. ".../dist/apps/www/index.js" vs "apps/www/index.tsx"). Re-anchor at
+            // `this.appDir` — present verbatim in both forms — and compare extension-stripped so a
+            // compiled path can still be matched against its source-relative entry.
+            const stripExt = (p: string) => p.replace(/\.[^./]+$/, "");
+            const anchorIndex = relPath.indexOf(this.appDir);
+            const entryKey = stripExt(anchorIndex >= 0 ? relPath.slice(anchorIndex) : relPath);
             const entry =
-                manifest[entryKey] ?? Object.values(manifest).find((candidate) => candidate.name === entryKey);
+                manifest[relPath] ??
+                Object.values(manifest).find(
+                    (candidate) => candidate.name && stripExt(candidate.name) === entryKey
+                );
             if (entry) {
                 return { js: `/${entry.file}`, css: (entry.css ?? []).map((f) => `/${f}`) };
             }
             this.logger.warn(
-                `[ReactRoute] Manifest entry "${entryKey}" not found. ` +
+                `[ReactRoute] Manifest entry "${relPath}" not found. ` +
                 `Available keys: ${Object.keys(manifest).join(", ")}`
             );
         }
