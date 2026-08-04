@@ -24,6 +24,24 @@ _devReloadEmitter.setMaxListeners(200);
 
 const DEV_RELOAD_PATH = "/__rapidrest__/reload";
 
+/** MIME types for serving built hydration assets (JS bundles, CSS, source maps, fonts, images). */
+const ASSET_MIME_TYPES: Record<string, string> = {
+    ".css": "text/css",
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".json": "application/json",
+    ".map": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+};
+
 /**
  * Base class for HTTP routes that serve React pages from the `app/` directory.
  *
@@ -280,6 +298,14 @@ export class ReactRoute {
             ? req.path.slice(this.routePrefix.length) || "/"
             : req.path;
 
+        // Built hydration bundles (e.g. "/assets/app/pets.tsx-abc123.js") live under Vite's
+        // outDir, at the same mount point as the pages themselves. Serve them directly here
+        // rather than falling through to page resolution, which would 404 → render `_404`,
+        // which itself has no hydration entry (see below) and would throw.
+        if (await this.tryServeAsset(pageSegment, res)) {
+            return res;
+        }
+
         // Dev SSE live-reload stream — held at <prefix>/__rapidrest__/reload
         if (this.isDevMode() && pageSegment === DEV_RELOAD_PATH) {
             this.handleDevReload(res);
@@ -339,14 +365,18 @@ export class ReactRoute {
                 ...routeProps,
             };
 
+            // `_404`/`_500` fallback pages are deliberately excluded from Vite's page-entry
+            // scan (see findPageEntries in vite.ts), so they have no hydration bundle to inject —
+            // only hydrate a genuinely-matched page (httpStatus === 200).
+            const shouldHydrate = this.hydrate && httpStatus === 200;
             const Layout = this.layout;
-            const content = this.hydrate
+            const content = shouldHydrate
                 ? <div id={this.hydrateRootId}><PageComponent {...props} /></div>
                 : <PageComponent {...props} />;
 
             html = renderToString(Layout ? <Layout>{content}</Layout> : content);
 
-            if (this.hydrate) {
+            if (shouldHydrate) {
                 html = this.injectHydrationAssets(html, props, pagePath);
             }
         } catch (err) {
@@ -454,6 +484,50 @@ export class ReactRoute {
             this.devReloadConnectionCount--;
         });
         // Do NOT call res.end() — the SSE stream stays open.
+    }
+
+    // --- Static asset serving ---
+
+    /**
+     * Derives Vite's `outDir` from the configured manifest path. Vite always writes the
+     * manifest to `<outDir>/.vite/manifest.json`, so this is `manifestPath` with that
+     * trailing segment stripped. Returns `null` when hydration/manifest isn't configured.
+     */
+    private resolveOutDir(): string | null {
+        if (!this.manifestPath) return null;
+        return path.dirname(path.dirname(this.manifestPath));
+    }
+
+    /**
+     * Serves a built hydration asset (e.g. `/assets/app/pets.tsx-abc123.js`, referenced by
+     * `injectHydrationAssets`) directly from Vite's output directory, bypassing SSR/page
+     * resolution entirely. Returns `true` if the request was handled.
+     */
+    private async tryServeAsset(pageSegment: string, res: HttpResponse): Promise<boolean> {
+        const outDir = this.resolveOutDir();
+        if (!outDir) return false;
+
+        const root = path.resolve(process.cwd(), outDir);
+        const filePath = path.resolve(root, pageSegment.replace(/^\//, ""));
+        // Reject any path that escapes the output directory (e.g. via `../` segments).
+        if (filePath !== root && !filePath.startsWith(root + path.sep)) return false;
+
+        let stat: fs.Stats;
+        try {
+            stat = await fs.promises.stat(filePath);
+        } catch {
+            return false;
+        }
+        if (!stat.isFile()) return false;
+
+        const ext = path.extname(filePath);
+        const mimeType = ASSET_MIME_TYPES[ext];
+        if (!mimeType) return false;
+
+        const data = await fs.promises.readFile(filePath);
+        (res as any).setHeader?.("content-type", mimeType);
+        (res as any).send?.(data);
+        return true;
     }
 
     private injectDevReloadScript(html: string): string {

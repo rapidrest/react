@@ -40,36 +40,40 @@ export interface RapidRestViteOptions {
 const VIRTUAL_PREFIX = "\0rapidrest-entry:";
 
 /**
- * Scans `appDir` and returns a rollup input map for all page entry points.
+ * Scans `appDir` and returns a rollup input map for all page entry points, matching
+ * `ReactRoute.resolveAppFile()`'s convention at any nesting depth.
  *
  * Included:
  * - `app/*.tsx` — top-level files, excluding those starting with `_`
- * - `app/<dir>/index.tsx` — index files one level deep, excluding `_*` dirs
+ * - `app/**\/index.tsx` — index files at any depth, excluding `_*` dirs anywhere in the path
  *
- * The input KEY (e.g. `"app/pets.tsx"`) becomes the Vite manifest key because
- * Vite uses `chunk.name` (the rollup input key) for virtual-module entries.
+ * Non-index `.tsx` files inside subdirectories are sub-components, not entries, and are skipped.
  */
 function findPageEntries(appDir: string): Record<string, string> {
     const result: Record<string, string> = {};
-    const absDir = path.resolve(appDir);
-    if (!fs.existsSync(absDir)) return result;
+    const absRoot = path.resolve(appDir);
+    if (!fs.existsSync(absRoot)) return result;
 
-    for (const entry of fs.readdirSync(absDir)) {
-        if (entry.startsWith("_")) continue;
-        const fullPath = path.join(absDir, entry);
-        const stat = fs.statSync(fullPath);
+    const walk = (dir: string, isRoot: boolean) => {
+        for (const entry of fs.readdirSync(dir)) {
+            if (entry.startsWith("_")) continue;
+            const fullPath = path.join(dir, entry);
+            const stat = fs.statSync(fullPath);
 
-        if (stat.isFile() && entry.endsWith(".tsx")) {
-            const key = path.posix.join(appDir.replace(/\\/g, "/"), entry);
-            result[key] = VIRTUAL_PREFIX + key;
-        } else if (stat.isDirectory()) {
-            const indexPath = path.join(fullPath, "index.tsx");
-            if (fs.existsSync(indexPath)) {
-                const key = path.posix.join(appDir.replace(/\\/g, "/"), entry, "index.tsx");
-                result[key] = VIRTUAL_PREFIX + key;
+            if (stat.isFile() && entry.endsWith(".tsx")) {
+                // Top-level: any .tsx file is an entry. Nested: only index.tsx is.
+                if (isRoot || entry === "index.tsx") {
+                    const relPath = path.relative(absRoot, fullPath).replace(/\\/g, "/");
+                    const key = path.posix.join(appDir.replace(/\\/g, "/"), relPath);
+                    result[key] = VIRTUAL_PREFIX + key;
+                }
+            } else if (stat.isDirectory()) {
+                walk(fullPath, false);
             }
         }
-    }
+    };
+
+    walk(absRoot, true);
     return result;
 }
 

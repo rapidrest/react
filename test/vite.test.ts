@@ -59,6 +59,17 @@ describe("rapidrest-hydration plugin", () => {
             }
         });
 
+        it("Discovers index.tsx at arbitrary nesting depth (regression: previously only 1 level deep " +
+            "was scanned, so e.g. auth/login/index.tsx was silently skipped), while still excluding " +
+            "non-index files and underscore-prefixed directories at any depth.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app-nested" });
+            const result = plugin.options({});
+            expect(result).not.toBeNull();
+            const keys = Object.keys(result.input).sort();
+            expect(keys).toEqual(["test/fixtures/vite-app-nested/auth/login/index.tsx"]);
+            expect(result.input[keys[0]]).toBe(`\0rapidrest-entry:${keys[0]}`);
+        });
+
         it("Merges with an existing string rollup input.", async () => {
             const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app/sub" });
             const result = plugin.options({ input: "existing.ts" });

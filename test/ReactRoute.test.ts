@@ -1,10 +1,12 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 ///////////////////////////////////////////////////////////////////////////////
+import fs from "fs";
+import os from "os";
 import path from "path";
 import config from "./config";
 import { request } from "@rapidrest/service-core/test";
-import { Server, ObjectFactory, HttpRequest } from "@rapidrest/service-core";
+import { Server, ObjectFactory, HttpRequest, HttpResponse } from "@rapidrest/service-core";
 import { Logger } from "@rapidrest/core";
 import { ReactRoute } from "../src/ReactRoute.js";
 
@@ -25,6 +27,27 @@ function fakeRequest(overrides: Partial<HttpRequest>): HttpRequest {
         socket: {},
         ...overrides,
     };
+}
+
+// Minimal response double recording status/headers/body — enough for both tryServeAsset()
+// (setHeader/send) and the full get() handler (status/setHeader/send). `calls` is a stable
+// object reference that callers should read from *after* the call under test completes —
+// destructuring its fields upfront would snapshot them before status()/send() ever run.
+function fakeResponse(): { res: HttpResponse; calls: { status?: number; headers: Record<string, string>; body: any } } {
+    const calls: { status?: number; headers: Record<string, string>; body: any } = { headers: {}, body: undefined };
+    const res: any = {
+        status(code: number) {
+            calls.status = code;
+            return res;
+        },
+        setHeader(key: string, value: string) {
+            calls.headers[key] = value;
+        },
+        send(body: any) {
+            calls.body = body;
+        },
+    };
+    return { res, calls };
 }
 
 // Exposes protected methods for direct unit testing.
@@ -55,6 +78,14 @@ class TestableReactRoute extends ReactRoute {
 
     public callResolveClientUrls(pagePath: string): { js: string; css: string[] } {
         return (this as any).resolveClientUrls(pagePath);
+    }
+
+    public setManifestPath(manifestPath: string): void {
+        (this as any).manifestPath = manifestPath;
+    }
+
+    public callTryServeAsset(pageSegment: string, res: HttpResponse): Promise<boolean> {
+        return (this as any).tryServeAsset(pageSegment, res);
     }
 }
 
@@ -278,6 +309,139 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
                 route.callResolveClientUrls(pagePath)
             )
         ).toThrow(/hydrate=true requires react.manifestPath/);
+    });
+});
+
+describe("ReactRoute.tryServeAsset Tests", () => {
+    let outDir: string;
+
+    beforeAll(() => {
+        outDir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-outdir-"));
+        fs.mkdirSync(path.join(outDir, "assets"), { recursive: true });
+        fs.writeFileSync(path.join(outDir, "assets", "bundle-abc123.js"), "console.log('hi');");
+        fs.writeFileSync(path.join(outDir, "assets", "malicious.exe"), "not a real asset");
+    });
+
+    afterAll(() => {
+        fs.rmSync(outDir, { recursive: true, force: true });
+    });
+
+    it("Returns false without touching the filesystem when manifestPath is unconfigured.", async () => {
+        const route = new TestableReactRoute();
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/assets/bundle-abc123.js", res)).toBe(false);
+    });
+
+    it("Serves a file that exists under the derived outDir (manifestPath's grandparent dir).", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res, calls } = fakeResponse();
+        const handled = await route.callTryServeAsset("/assets/bundle-abc123.js", res);
+        expect(handled).toBe(true);
+        expect(calls.status).toBeUndefined(); // no explicit status call needed — defaults to 200
+        expect(calls.headers["content-type"]).toBe("application/javascript");
+        expect(calls.body.toString()).toBe("console.log('hi');");
+    });
+
+    it("Returns false for a file that does not exist under outDir.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/assets/does-not-exist.js", res)).toBe(false);
+    });
+
+    it("Returns false for a directory (not a file).", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/assets", res)).toBe(false);
+    });
+
+    it("Returns false for an extension not on the allow-list, even though the file exists.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/assets/malicious.exe", res)).toBe(false);
+    });
+
+    it("Returns false for a path traversal attempt that escapes outDir.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/../../../../../../etc/passwd", res)).toBe(false);
+    });
+
+    it("get() short-circuits to the asset response, bypassing page resolution entirely.", async () => {
+        const route = new TestableReactRoute();
+        const noop = () => undefined;
+        (route as any).logger = { warn: noop, debug: noop, error: noop };
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res, calls } = fakeResponse();
+
+        const result = await route.get(fakeRequest({ path: "/assets/bundle-abc123.js" }), res);
+
+        expect(result).toBe(res);
+        expect(calls.headers["content-type"]).toBe("application/javascript");
+        expect(calls.body.toString()).toBe("console.log('hi');");
+    });
+});
+
+describe("ReactRoute hydration + _404 interaction", () => {
+    // Hydration entries are only generated for real pages (see findPageEntries in vite.ts) —
+    // `_404`/`_500` are deliberately excluded. A hydrate-enabled route must therefore render
+    // its 404 fallback without attempting hydration, or every miss would throw/500 instead of 404.
+    class HydratingRoute extends TestableReactRoute {
+        protected readonly appDir = "test/app";
+        protected readonly hydrate = true;
+    }
+
+    function makeRoute(manifest: Record<string, { file: string; css?: string[]; name?: string }>): HydratingRoute {
+        const route = new HydratingRoute();
+        const noop = () => undefined;
+        (route as any).logger = { warn: noop, debug: noop, error: noop };
+        route.setManifest(manifest);
+        return route;
+    }
+
+    const original = { nodeEnv: process.env.NODE_ENV };
+    beforeAll(() => {
+        process.env.NODE_ENV = "production"; // resolveManifest() only reads the in-memory manifest in production
+    });
+    afterAll(() => {
+        process.env.NODE_ENV = original.nodeEnv;
+    });
+
+    it("Hydrates a genuinely-matched page (200) when its manifest entry is present.", async () => {
+        const indexPath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), indexPath).replace(/\\/g, "/");
+        const route = makeRoute({ [entryKey]: { file: "assets/index-abc123.js" } });
+        const { res, calls } = fakeResponse();
+
+        const result = await route.get(fakeRequest({ path: "/" }), res);
+
+        expect(calls.status ?? 200).toBeLessThan(300);
+        const html = typeof result === "string" ? result : calls.body;
+        expect(html).toContain('id="react-root"');
+        expect(html).toContain("/assets/index-abc123.js");
+    });
+
+    it("Renders _404 without attempting hydration, even though _404 has no manifest entry.", async () => {
+        // Only the real page's entry is present — _404 is intentionally absent.
+        const indexPath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), indexPath).replace(/\\/g, "/");
+        const route = makeRoute({ [entryKey]: { file: "assets/index-abc123.js" } });
+        const { res, calls } = fakeResponse();
+
+        const result = await route.get(fakeRequest({ path: "/does-not-exist" }), res);
+
+        expect(calls.status).toBe(404);
+        const html = typeof result === "string" ? result : calls.body;
+        expect(html).toContain("Page not found");
+        // No hydration root/bundle — only the unrelated dev-reload script (injected via isDevMode(),
+        // independent of hydrate) is expected to be present in this environment.
+        expect(html).not.toContain('id="react-root"');
+        expect(html).not.toContain('id="react-props"');
+        expect(html).not.toContain('<script type="module"');
     });
 });
 
