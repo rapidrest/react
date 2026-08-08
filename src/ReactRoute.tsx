@@ -113,6 +113,19 @@ export class ReactRoute {
 
     private layout: ComponentType<PropsWithChildren> | null = null;
 
+    /**
+     * Caches resolveAppFile() lookups (production only — the app dir's file set is fixed once
+     * built, so repeat fs work per request is pure waste; dev mode always re-resolves so newly
+     * added/removed page files are picked up immediately).
+     */
+    private resolvedFileCache: Map<string, string | null> = new Map();
+
+    /**
+     * In-flight render promises keyed by cache key, so concurrent requests for the same cold
+     * cache entry share one render instead of each independently re-rendering (cache stampede).
+     */
+    private pendingRenders: Map<string, Promise<{ status: number; html: string }>> = new Map();
+
     @Logger
     protected logger: any;
 
@@ -210,11 +223,25 @@ export class ReactRoute {
      */
     protected canonicalizeQuery(query: Record<string, string | string[]> | undefined): Record<string, string | string[]> {
         if (!query) return {};
-        const sorted: Record<string, string | string[]> = {};
+        // Object.create(null) avoids the Object.prototype "__proto__" accessor: on a plain object
+        // literal, `sorted["__proto__"] = value` doesn't create an own property (it's silently
+        // dropped for non-object values, or reassigns sorted's prototype for object values), which
+        // would let a `?__proto__=...` query param vanish from the hash below and collide two
+        // otherwise-distinct requests onto the same cache key.
+        const sorted: Record<string, string | string[]> = Object.create(null);
         for (const key of Object.keys(query).sort()) {
             sorted[key] = query[key];
         }
         return sorted;
+    }
+
+    /**
+     * Override to fold additional request dimensions (e.g. `Accept-Language`, a feature-flag
+     * cookie) into the cache key, for pages whose rendered output varies on something beyond
+     * path/params/query/user identity. Returns {} by default (no extra dimensions).
+     */
+    protected cacheKeyExtras(_req: HttpRequest): Record<string, any> {
+        return {};
     }
 
     /**
@@ -226,6 +253,7 @@ export class ReactRoute {
             params: req.params,
             query: this.canonicalizeQuery(req.query),
             userUid: req.user?.uid,
+            ...this.cacheKeyExtras(req),
         });
         let hash = _hashCache.get(key);
         if (!hash) {
@@ -252,14 +280,26 @@ export class ReactRoute {
      * Tries .tsx → /index.tsx → .jsx → /index.jsx → .js → /index.js.
      * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
      */
-    protected resolveAppFile(appDir: string, segment: string): string | null {
-        const tryDir = (dir: string, suffixes: string[]): string | null => {
+    protected async resolveAppFile(appDir: string, segment: string): Promise<string | null> {
+        const isProduction = process.env.NODE_ENV === "production";
+        const cacheKey = `${appDir} ${segment}`;
+        if (isProduction) {
+            const cached = this.resolvedFileCache.get(cacheKey);
+            if (cached !== undefined) return cached;
+        }
+
+        const tryDir = async (dir: string, suffixes: string[]): Promise<string | null> => {
             const appRoot = path.resolve(process.cwd(), dir);
             const base = path.resolve(appRoot, segment.replace(/^\//, ""));
             if (base !== appRoot && !base.startsWith(appRoot + path.sep)) return null;
             for (const suffix of suffixes) {
                 const full = base + suffix;
-                if (fs.existsSync(full)) return full;
+                try {
+                    await fs.promises.access(full, fs.constants.F_OK);
+                    return full;
+                } catch {
+                    // try the next suffix
+                }
             }
             return null;
         };
@@ -277,54 +317,29 @@ export class ReactRoute {
             process.env.VITEST === "true" ||
             !!process.env.JEST_WORKER_ID;
 
-        if (!hasTsxContext) {
-            const jsSuffixes = [".js", "/index.js"];
-            return (
-                tryDir(appDir, jsSuffixes) ??
-                tryDir(path.join("dist", appDir), jsSuffixes)
-            );
-        }
+        const result = !hasTsxContext
+            ? (await tryDir(appDir, [".js", "/index.js"])) ??
+              (await tryDir(path.join("dist", appDir), [".js", "/index.js"]))
+            // In dev (tsx) all TypeScript extensions are handled natively.
+            : await tryDir(appDir, [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]);
 
-        // In dev (tsx) all TypeScript extensions are handled natively.
-        return tryDir(appDir, [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]);
+        if (isProduction) {
+            this.resolvedFileCache.set(cacheKey, result);
+        }
+        return result;
     }
 
-    @Get("/*")
-    @ContentType("text/html")
-    public async get(@Request req: HttpRequest, @Response res: HttpResponse) {
-        // Strip the route prefix (e.g. "/app" from "/app/pets" → "/pets") so the page
-        // file resolution is independent of where the route is mounted.
-        const pageSegment = this.routePrefix && req.path.startsWith(this.routePrefix)
-            ? req.path.slice(this.routePrefix.length) || "/"
-            : req.path;
-
-        // Built hydration bundles (e.g. "/assets/app/pets.tsx-abc123.js") live under Vite's
-        // outDir, at the same mount point as the pages themselves. Serve them directly here
-        // rather than falling through to page resolution, which would 404 → render `_404`,
-        // which itself has no hydration entry (see below) and would throw.
-        if (await this.tryServeAsset(pageSegment, res)) {
-            return res;
-        }
-
-        // Dev SSE live-reload stream — held at <prefix>/__rapidrest__/reload
-        if (this.isDevMode() && pageSegment === DEV_RELOAD_PATH) {
-            this.handleDevReload(res);
-            return;
-        }
-
-        // Production cache lookup
-        if (process.env.NODE_ENV === "production" && this.cacheClient) {
-            const cached = await this.cacheClient.get(this.hashRequest(req));
-            if (cached) {
-                return cached;
-            }
-        }
-
-        this.logger.debug(`[ReactRoute] Rendering "${pageSegment}"`);
-
+    /**
+     * Renders a page for the given request: resolves the layout/page file, fetches props,
+     * runs SSR (falling back to `_404`/`_500` as needed), and injects the dev-reload script.
+     * Factored out of `get()` so concurrent requests for the same cache key can share one
+     * in-flight render (see the `pendingRenders` coalescing in `get()`) instead of each
+     * independently repeating this work.
+     */
+    private async renderPage(req: HttpRequest, pageSegment: string): Promise<{ status: number; html: string }> {
         // Lazy-load the global layout on first request
         if (!this.layout) {
-            const layoutPath = this.resolveAppFile(this.appDir, "_layout");
+            const layoutPath = await this.resolveAppFile(this.appDir, "_layout");
             if (layoutPath) {
                 const layoutMod = await import(pathToFileURL(layoutPath).href);
                 this.layout = layoutMod.default;
@@ -332,15 +347,15 @@ export class ReactRoute {
         }
 
         // Resolve page file — fall back to _404 when path has no matching file
-        let pagePath = this.resolveAppFile(this.appDir, pageSegment);
+        let pagePath = await this.resolveAppFile(this.appDir, pageSegment);
         let httpStatus = 200;
         if (!pagePath) {
-            pagePath = this.resolveAppFile(this.appDir, "_404");
+            pagePath = await this.resolveAppFile(this.appDir, "_404");
             httpStatus = 404;
         }
 
         if (!pagePath) {
-            return this.sendHtml(res, 404, "<html><head></head><body><h1>404 Not Found</h1></body></html>");
+            return { status: 404, html: "<html><head></head><body><h1>404 Not Found</h1></body></html>" };
         }
 
         let html: string;
@@ -352,10 +367,14 @@ export class ReactRoute {
             // Check to see if there's a react service for this page path
             const service: any = this.services.get(pageSegment);
 
-            // There are three levels of fetching props: Page => Service => Route
-            const pageProps = pageFetchProps ? await pageFetchProps(req) : {};
-            const serviceProps = service ? await service.fetchProps(req) : {};
-            const routeProps = (await this.fetchProps(req)) ?? {};
+            // There are three levels of fetching props: Page => Service => Route. These are
+            // independent data sources — fetch them concurrently rather than one at a time.
+            const [pageProps, serviceProps, routePropsRaw] = await Promise.all([
+                pageFetchProps ? pageFetchProps(req) : Promise.resolve({}),
+                service ? service.fetchProps(req) : Promise.resolve({}),
+                this.fetchProps(req),
+            ]);
+            const routeProps = routePropsRaw ?? {};
             const exposedUser = this.pickUserFields(req.user);
             const props = {
                 userUid: req.user?.uid,
@@ -389,7 +408,7 @@ export class ReactRoute {
                 ? { name: "Error", message: "Internal Server Error" }
                 : err;
 
-            const errorPath = this.resolveAppFile(this.appDir, "_500");
+            const errorPath = await this.resolveAppFile(this.appDir, "_500");
             if (errorPath) {
                 try {
                     const errMod = await import(pathToFileURL(errorPath).href);
@@ -413,19 +432,90 @@ export class ReactRoute {
             html = this.injectDevReloadScript(html);
         }
 
+        return { status: httpStatus, html };
+    }
+
+    @Get("/*")
+    @ContentType("text/html")
+    public async get(@Request req: HttpRequest, @Response res: HttpResponse) {
+        // Strip the route prefix (e.g. "/app" from "/app/pets" → "/pets") so the page
+        // file resolution is independent of where the route is mounted.
+        const pageSegment = this.routePrefix && req.path.startsWith(this.routePrefix)
+            ? req.path.slice(this.routePrefix.length) || "/"
+            : req.path;
+
+        // Built hydration bundles (e.g. "/assets/app/pets.tsx-abc123.js") live under Vite's
+        // outDir, at the same mount point as the pages themselves. Serve them directly here
+        // rather than falling through to page resolution, which would 404 → render `_404`,
+        // which itself has no hydration entry (see below) and would throw.
+        if (await this.tryServeAsset(pageSegment, res)) {
+            return res;
+        }
+
+        // Dev SSE live-reload stream — held at <prefix>/__rapidrest__/reload
+        if (this.isDevMode() && pageSegment === DEV_RELOAD_PATH) {
+            this.handleDevReload(res);
+            return;
+        }
+
+        const cacheClient = process.env.NODE_ENV === "production" ? this.cacheClient : undefined;
+        const cacheKey = cacheClient ? this.hashRequest(req) : null;
+
+        // Production cache lookup. A read failure is treated as a cache miss (fall through to
+        // rendering) rather than an uncaught exception — the SSR error path below already has
+        // careful prod-safe redaction, and we don't want a transient cache-backend blip to skip
+        // that and surface a raw error instead of a page.
+        if (cacheClient && cacheKey) {
+            try {
+                const cached = await cacheClient.get(cacheKey);
+                if (cached) {
+                    return cached;
+                }
+            } catch (err) {
+                this.logger.warn(`[ReactRoute] Cache read failed for "${req.path}":`, err);
+            }
+        }
+
+        this.logger.debug(`[ReactRoute] Rendering "${pageSegment}"`);
+
+        // Share a single in-flight render across concurrent requests for the same cache key,
+        // instead of letting each one independently render on a cold cache (stampede). Only the
+        // "leader" that actually created the render — not the followers that just awaited it —
+        // writes the result through to cache, so coalesced requests don't all redundantly SETEX
+        // the same value.
+        let result: { status: number; html: string };
+        let isLeader = false;
+        const pending = cacheKey ? this.pendingRenders.get(cacheKey) : undefined;
+        if (pending) {
+            result = await pending;
+        } else {
+            isLeader = true;
+            const renderPromise = this.renderPage(req, pageSegment);
+            if (cacheKey) this.pendingRenders.set(cacheKey, renderPromise);
+            try {
+                result = await renderPromise;
+            } finally {
+                if (cacheKey) this.pendingRenders.delete(cacheKey);
+            }
+        }
+
         // For non-200 responses, send the response ourselves so the status code is preserved.
         // The RapidREST middleware wrapper always applies status 200 to return values, so we
         // bypass it by calling res.send() directly and returning res.
-        if (httpStatus !== 200) {
-            return this.sendHtml(res, httpStatus, html);
+        if (result.status !== 200) {
+            return this.sendHtml(res, result.status, result.html);
         }
 
-        // Production-only cache (don't cache non-200)
-        if (process.env.NODE_ENV === "production" && this.cacheClient) {
-            void this.cacheClient.setex(this.hashRequest(req), this.cacheTTL, html);
+        // Production-only cache (don't cache non-200). Fire-and-forget, but never unhandled —
+        // a cache-backend error here must not crash requests that otherwise rendered fine.
+        // Promise.resolve() also tolerates cache client stubs/mocks that don't return a promise.
+        if (isLeader && cacheClient && cacheKey) {
+            Promise.resolve(cacheClient.setex(cacheKey, this.cacheTTL, result.html)).catch((err) => {
+                this.logger.warn(`[ReactRoute] Failed to write cache for "${req.path}":`, err);
+            });
         }
 
-        return html;
+        return result.html;
     }
 
     // uWS registers the inherited `get()` handler's "/*" sub-path as the literal wildcard pattern
@@ -475,20 +565,36 @@ export class ReactRoute {
             (res as any).send?.("");
             return;
         }
+
+        // The counter and the `_devReloadEmitter` listener registered below can only ever be
+        // cleaned up from inside the onAbort callback — without it there's no disconnect signal
+        // at all, and both would leak permanently (eventually locking out real clients once the
+        // phantom count reaches maxDevReloadConnections, and piling up listeners on the shared,
+        // process-global emitter). Decline to track the connection rather than leak it.
+        const onAbort = (res as any).onAbort;
+        if (typeof onAbort !== "function") {
+            this.logger.warn(
+                "[ReactRoute] Response does not support onAbort; declining dev live-reload connection to avoid a resource leak."
+            );
+            (res as any).status?.(501);
+            (res as any).send?.("");
+            return;
+        }
+
         this.devReloadConnectionCount++;
 
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Access-Control-Allow-Origin", "*");
         // Flush headers immediately — SSE requires the response to stay open.
-        // flushHeaders/write/onAbort are provided by UWSResponse for streaming support.
+        // flushHeaders/write are provided by UWSResponse for streaming support.
         (res as any).flushHeaders?.();
         (res as any).write?.(": connected\n\n");
 
         const onReload = () => (res as any).write?.("data: reload\n\n");
         _devReloadEmitter.on("reload", onReload);
         // onAbort fans out alongside the existing _aborted tracking in UWSResponse.
-        (res as any).onAbort?.(() => {
+        onAbort.call(res, () => {
             _devReloadEmitter.off("reload", onReload);
             this.devReloadConnectionCount--;
         });

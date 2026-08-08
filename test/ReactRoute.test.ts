@@ -52,7 +52,7 @@ function fakeResponse(): { res: HttpResponse; calls: { status?: number; headers:
 
 // Exposes protected methods for direct unit testing.
 class TestableReactRoute extends ReactRoute {
-    public callResolveAppFile(appDir: string, segment: string): string | null {
+    public callResolveAppFile(appDir: string, segment: string): Promise<string | null> {
         return this.resolveAppFile(appDir, segment);
     }
 
@@ -215,42 +215,42 @@ describe("ReactRoute Tests", () => {
 describe("ReactRoute.resolveAppFile Tests", () => {
     const route = new TestableReactRoute();
 
-    it("Resolves a page file that exists within the app directory.", () => {
-        const result = route.callResolveAppFile("test/app", "/index");
+    it("Resolves a page file that exists within the app directory.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/index");
         expect(result).not.toBeNull();
         expect(result).toMatch(/index\.tsx$/);
     });
 
-    it("Resolves a nested page file using the index convention.", () => {
-        const result = route.callResolveAppFile("test/app", "/auth/login");
+    it("Resolves a nested page file using the index convention.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/auth/login");
         expect(result).not.toBeNull();
         expect(result).toMatch(/auth[\\/]login[\\/]index\.tsx$/);
     });
 
-    it("Returns null for a segment with no matching file.", () => {
-        const result = route.callResolveAppFile("test/app", "/does-not-exist");
+    it("Returns null for a segment with no matching file.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/does-not-exist");
         expect(result).toBeNull();
     });
 
-    it("Returns null for a path traversal attempt that escapes the app directory.", () => {
+    it("Returns null for a path traversal attempt that escapes the app directory.", async () => {
         // Without the containment check this would resolve to the real src/ReactRoute.tsx file.
-        const result = route.callResolveAppFile("test/app", "/../../src/ReactRoute");
+        const result = await route.callResolveAppFile("test/app", "/../../src/ReactRoute");
         expect(result).toBeNull();
     });
 
-    it("Returns null for a deep path traversal attempt reaching outside the project.", () => {
-        const result = route.callResolveAppFile("test/app", "/../../../../../../../../etc/passwd");
+    it("Returns null for a deep path traversal attempt reaching outside the project.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/../../../../../../../../etc/passwd");
         expect(result).toBeNull();
     });
 
-    it("Returns null for a traversal attempt that only partially matches the app dir prefix.", () => {
+    it("Returns null for a traversal attempt that only partially matches the app dir prefix.", async () => {
         // "test/app-evil" should not be treated as being inside "test/app".
-        const result = route.callResolveAppFile("test/app", "/../app-evil/index");
+        const result = await route.callResolveAppFile("test/app", "/../app-evil/index");
         expect(result).toBeNull();
     });
 
-    it("Still resolves segments that legitimately stay within the app directory after normalization.", () => {
-        const result = route.callResolveAppFile("test/app", "/../app/index");
+    it("Still resolves segments that legitimately stay within the app directory after normalization.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/../app/index");
         expect(result).not.toBeNull();
         expect(result).toMatch(/index\.tsx$/);
     });

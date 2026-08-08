@@ -98,7 +98,7 @@ class TestableReactRoute extends ReactRoute {
         return (this as any).injectHydrationAssets(html, props, pagePath);
     }
 
-    public callResolveAppFile(appDir: string, segment: string): string | null {
+    public callResolveAppFile(appDir: string, segment: string): Promise<string | null> {
         return (this as any).resolveAppFile(appDir, segment);
     }
 
@@ -318,17 +318,37 @@ describe("ReactRoute.fetchProps default", () => {
 });
 
 describe("ReactRoute.resolveAppFile edge cases", () => {
-    it("Falls back to an empty main-entry path when process.argv[1] is unset.", () => {
+    it("Falls back to an empty main-entry path when process.argv[1] is unset.", async () => {
         const original = process.argv[1];
         try {
             process.argv[1] = undefined as any;
             const route = new TestableReactRoute();
             // hasTsxContext still ends up true via the VITEST env fallback, so .tsx resolution
             // still succeeds — this only exercises the `process.argv[1] ?? ""` fallback itself.
-            const result = route.callResolveAppFile("test/app", "/index");
+            const result = await route.callResolveAppFile("test/app", "/index");
             expect(result).toMatch(/index\.tsx$/);
         } finally {
             process.argv[1] = original;
+        }
+    });
+
+    it("Caches a resolved path in production so a later on-disk change doesn't affect the cached lookup.", async () => {
+        const original = process.env.NODE_ENV;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-resolve-cache-"));
+        const filePath = path.join(dir, "page.tsx");
+        fs.writeFileSync(filePath, "export default function Page() { return null; }");
+        try {
+            process.env.NODE_ENV = "production";
+            const route = new TestableReactRoute();
+            const first = await route.callResolveAppFile(dir, "/page");
+            expect(first).toMatch(/page\.tsx$/);
+
+            fs.rmSync(filePath);
+            const second = await route.callResolveAppFile(dir, "/page");
+            expect(second).toBe(first);
+        } finally {
+            process.env.NODE_ENV = original;
+            fs.rmSync(dir, { recursive: true, force: true });
         }
     });
 });
@@ -373,6 +393,20 @@ describe("ReactRoute.get dev-reload SSE endpoint", () => {
         expect(res.send).toHaveBeenCalledWith("");
         expect(res.setHeader).not.toHaveBeenCalled();
     });
+
+    it("Declines the connection with 501 instead of leaking when the response has no onAbort.", async () => {
+        const route = new AppRoute();
+        const warn = vi.fn();
+        route.setLogger({ ...noopLogger, warn });
+        const res = fakeResponse();
+        delete (res as any).onAbort;
+        await route.get(fakeRequest({ path: "/__rapidrest__/reload" }), res);
+        expect(res.status).toHaveBeenCalledWith(501);
+        expect(res.send).toHaveBeenCalledWith("");
+        expect(res.setHeader).not.toHaveBeenCalled();
+        expect(route.getDevReloadConnectionCount()).toBe(0);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("onAbort"));
+    });
 });
 
 describe("ReactRoute.get production cache", () => {
@@ -410,6 +444,65 @@ describe("ReactRoute.get production cache", () => {
         const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
         expect(result).toContain("<p>Home</p>");
         expect(setex).toHaveBeenCalledWith(expect.any(String), (route as any).cacheTTL, expect.any(String));
+    });
+
+    it("Falls through to rendering (rather than throwing) when the cache read fails.", async () => {
+        const route = new AppRoute();
+        const warn = vi.fn();
+        route.setLogger({ ...noopLogger, warn });
+        const get = vi.fn().mockRejectedValue(new Error("redis down"));
+        const setex = vi.fn();
+        route.setCacheClient({ get, setex });
+        const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
+        expect(String(result)).toContain("<p>Home</p>");
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Cache read failed"), expect.any(Error));
+    });
+
+    it("Does not crash the request when the cache write fails.", async () => {
+        const route = new AppRoute();
+        const warn = vi.fn();
+        route.setLogger({ ...noopLogger, warn });
+        const get = vi.fn().mockResolvedValue(undefined);
+        const setex = vi.fn().mockRejectedValue(new Error("redis down"));
+        route.setCacheClient({ get, setex });
+        const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
+        expect(String(result)).toContain("<p>Home</p>");
+        // The write failure is reported asynchronously (fire-and-forget) — flush microtasks.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Failed to write cache"), expect.any(Error));
+    });
+
+    it("Coalesces concurrent requests for the same cache key into a single render and cache write.", async () => {
+        let fetchCount = 0;
+        let releaseGate: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            releaseGate = resolve;
+        });
+        class SlowRoute extends AppRoute {
+            protected override async fetchProps(): Promise<any> {
+                fetchCount++;
+                await gate;
+                return {};
+            }
+        }
+        const route = new SlowRoute();
+        route.setLogger(noopLogger);
+        const get = vi.fn().mockResolvedValue(undefined);
+        const setex = vi.fn();
+        route.setCacheClient({ get, setex });
+
+        const req = fakeRequest({ path: "/" });
+        const p1 = route.get(req, fakeResponse());
+        const p2 = route.get(req, fakeResponse());
+        // Let both requests reach (and block on) the gate inside fetchProps before releasing it.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        releaseGate();
+        const [r1, r2] = await Promise.all([p1, p2]);
+
+        expect(fetchCount).toBe(1);
+        expect(String(r1)).toContain("<p>Home</p>");
+        expect(String(r2)).toContain("<p>Home</p>");
+        expect(setex).toHaveBeenCalledTimes(1);
     });
 });
 
