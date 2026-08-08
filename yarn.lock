@@ -514,9 +514,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@rapidrest/core@npm:^1.4.0":
-  version: 1.4.0
-  resolution: "@rapidrest/core@npm:1.4.0"
+"@rapidrest/core@npm:^1.12.0":
+  version: 1.12.0
+  resolution: "@rapidrest/core@npm:1.12.0"
   dependencies:
     form-data: "npm:^4.0.5"
     handlebars: "npm:^4.7.9"
@@ -532,7 +532,7 @@ __metadata:
     reflect-metadata: 0.2.x
     winston: 3.x
     winston-transport: 4.x
-  checksum: 10c0/f185a8f6162ed834f74235c104ff00b589dd139491d9ef6cf9884cb652e6a486d6ccbe980b4bbbf700ebf9011409a318f7c56dbf8d2d3e26216d4b73335a99ce
+  checksum: 10c0/6e5e23ece7b1a8a01d927ca5425cc881657337d586d36d61e0368a8ac81fa3448fdfcdb593419f231264872763cc7989ffb6642e9153387ab8d839fa105afac7
   languageName: node
   linkType: hard
 
@@ -540,8 +540,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@rapidrest/react@workspace:."
   dependencies:
-    "@rapidrest/core": "npm:^1.4.0"
-    "@rapidrest/service-core": "npm:1.0.0-rc.22"
+    "@rapidrest/core": "npm:^1.12.0"
+    "@rapidrest/service-core": "npm:1.0.0-rc.32"
     "@swc/core": "npm:^1.15.41"
     "@types/cross-spawn": "npm:^6.0.6"
     "@types/node": "npm:^25.9.2"
@@ -596,15 +596,15 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@rapidrest/service-core@npm:1.0.0-rc.22":
-  version: 1.0.0-rc.22
-  resolution: "@rapidrest/service-core@npm:1.0.0-rc.22"
+"@rapidrest/service-core@npm:1.0.0-rc.32":
+  version: 1.0.0-rc.32
+  resolution: "@rapidrest/service-core@npm:1.0.0-rc.32"
   dependencies:
     axios: "npm:^1.17.0"
     dayjs: "npm:^1.11.21"
     deepmerge: "npm:^4.3.1"
     node-schedule: "npm:^2.1.1"
-    uWebSockets.js: "github:uNetworking/uWebSockets.js#v20.68.0"
+    uWebSockets.js: "uNetworking/uWebSockets.js#v20.68.0"
     winston-transport: "npm:^4.9.0"
     ws: "npm:^8.21.0"
   peerDependencies:
@@ -618,6 +618,9 @@ __metadata:
     typeorm: 0.3.x
     uWebSockets.js: "*"
     winston: 3.x
+  dependenciesMeta:
+    uWebSockets.js:
+      optional: true
   peerDependenciesMeta:
     ioredis:
       optional: true
@@ -625,7 +628,9 @@ __metadata:
       optional: true
     typeorm:
       optional: true
-  checksum: 10c0/da69cb8637d15fb8fbde9cf85defbb2d9b9b828ae8f5ab4048bcf2a078c0add46d951ec4c2bea84e9c9c94f9606a1c38576687e7ab4625df124e96473f00e7b3
+    uWebSockets.js:
+      optional: true
+  checksum: 10c0/902a0aa4bd336a5ee7768159a0178e8e1baeaff3e7d1805eba473055fbccdb09afff01fc22a48d58909337552e561ef301c371ca1057d5a618342a8f74011551
   languageName: node
   linkType: hard
 
@@ -5137,7 +5142,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"uWebSockets.js@github:uNetworking/uWebSockets.js#v20.68.0":
+"uWebSockets.js@uNetworking/uWebSockets.js#v20.68.0":
   version: 20.68.0
   resolution: "uWebSockets.js@https://github.com/uNetworking/uWebSockets.js.git#commit=624987739d4da0acb628aaf2a10fc43e7ce27c5c"
   checksum: 10c0/b9d6ae0922d554044ad2c389c16c46476575b71a645f53c37d2dc1993e4ee798d2e95f2ed6214f33d99b6c638e57cd4b086f84e08cae61d1cf23c45f2a6efa00
