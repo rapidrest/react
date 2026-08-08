@@ -428,6 +428,15 @@ export class ReactRoute {
         return html;
     }
 
+    // uWS registers the inherited `get()` handler's "/*" sub-path as the literal wildcard pattern
+    // "/app/*", which only matches paths starting with "/app/" — the bare "/app" (no trailing
+    // slash) doesn't match and falls through to a 404. Register that exact path too.
+    @Get()
+    @ContentType("text/html")
+    public async getIndex(@Request req: HttpRequest, @Response res: HttpResponse) {
+        return this.get(req, res);
+    }
+
     /** Sends an HTML response with the given status code, bypassing the middleware wrapper. */
     private sendHtml(res: HttpResponse, status: number, html: string): HttpResponse {
         (res as any).status?.(status);
