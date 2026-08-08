@@ -113,6 +113,14 @@ describe("ReactRoute Tests", () => {
         expect(result.body).toContain("<p>Home</p>");
     });
 
+    it("Serves the home page from the bare /app path (no trailing slash) via getIndex().", async () => {
+        const result = await request(server.getApplication()).get(UI_BASE);
+        expect(result).toBeDefined();
+        expect(result.status).toBeGreaterThanOrEqual(200);
+        expect(result.status).toBeLessThan(300);
+        expect(result.body).toContain("<p>Home</p>");
+    });
+
     it("Wraps pages in _layout.tsx.", async () => {
         const result = await request(server.getApplication()).get(UI_BASE + "/");
         expect(result.body).toMatch(/^<html>/);

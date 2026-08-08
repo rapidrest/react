@@ -1,169 +1,169 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="135" failures="0" errors="0" time="0.7782023">
-    <testsuite name="test/cli.test.ts" timestamp="2026-08-08T00:02:25.154Z" hostname="Jane" tests="26" failures="0" errors="0" skipped="0" time="0.338599">
-        <testcase classname="test/cli.test.ts" name="cli &gt; resolveLocalBin &gt; Returns the local .bin path when it exists." time="0.0040494">
+<testsuites name="vitest tests" tests="136" failures="0" errors="0" time="0.6891988">
+    <testsuite name="test/cli.test.ts" timestamp="2026-08-08T00:04:41.111Z" hostname="Jane" tests="26" failures="0" errors="0" skipped="0" time="0.331248">
+        <testcase classname="test/cli.test.ts" name="cli &gt; resolveLocalBin &gt; Returns the local .bin path when it exists." time="0.0035674">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; resolveLocalBin &gt; Falls back to the bare name when no local .bin entry exists." time="0.0006608">
+        <testcase classname="test/cli.test.ts" name="cli &gt; resolveLocalBin &gt; Falls back to the bare name when no local .bin entry exists." time="0.0006106">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; isAvailable &gt; Returns true when the local .bin entry exists." time="0.0016502">
+        <testcase classname="test/cli.test.ts" name="cli &gt; isAvailable &gt; Returns true when the local .bin entry exists." time="0.0016137">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; isAvailable &gt; Returns false when the local .bin entry does not exist." time="0.0006084">
+        <testcase classname="test/cli.test.ts" name="cli &gt; isAvailable &gt; Returns false when the local .bin entry does not exist." time="0.0005747">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; findServerEntry &gt; Finds the first matching candidate in priority order." time="0.0018197">
+        <testcase classname="test/cli.test.ts" name="cli &gt; findServerEntry &gt; Finds the first matching candidate in priority order." time="0.0016583">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; findServerEntry &gt; Throws when no candidate exists." time="0.0011678">
+        <testcase classname="test/cli.test.ts" name="cli &gt; findServerEntry &gt; Throws when no candidate exists." time="0.0011274">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; spawnProcess &gt; Logs and exits when the underlying process fails to start." time="0.0023481">
+        <testcase classname="test/cli.test.ts" name="cli &gt; spawnProcess &gt; Logs and exits when the underlying process fails to start." time="0.0021133">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Exits 0 once every child process exits successfully." time="0.0011387">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Exits 0 once every child process exits successfully." time="0.0009718">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Shuts down remaining children and exits with the failing code when one exits non-zero." time="0.0011603">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Shuts down remaining children and exits with the failing code when one exits non-zero." time="0.000989">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Does not re-kill a child that already exited when shutting down via SIGINT." time="0.0013145">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Does not re-kill a child that already exited when shutting down via SIGINT." time="0.0007049">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Shuts down children on SIGTERM." time="0.0006149">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runParallel &gt; Shuts down children on SIGTERM." time="0.0011569">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runSequential &gt; Runs each step in order and resolves once all exit successfully." time="0.0579304">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runSequential &gt; Runs each step in order and resolves once all exit successfully." time="0.0618269">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; runSequential &gt; Rejects when a step exits with a non-zero code." time="0.0011131">
+        <testcase classname="test/cli.test.ts" name="cli &gt; runSequential &gt; Rejects when a step exits with a non-zero code." time="0.001079">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Uses tsx --watch when nodemon is unavailable and an explicit entry is given." time="0.0011424">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Uses tsx --watch when nodemon is unavailable and an explicit entry is given." time="0.0012133">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Uses nodemon when available." time="0.0019658">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Uses nodemon when available." time="0.0019255">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Rejects an unsafe server entry path and exits without spawning." time="0.0006139">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Rejects an unsafe server entry path and exits without spawning." time="0.0006116">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Auto-detects the server entry when none is given." time="0.001425">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Auto-detects the server entry when none is given." time="0.0014386">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Throws when no server entry can be auto-detected." time="0.0006881">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - dev command &gt; Throws when no server entry can be auto-detected." time="0.000673">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Builds with only the server tsconfig when no client tsconfig exists." time="0.0658005">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Builds with only the server tsconfig when no client tsconfig exists." time="0.0558129">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Also builds the client tsconfig when tsconfig.client.json exists." time="0.1244034">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Also builds the client tsconfig when tsconfig.client.json exists." time="0.1260375">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Rejects an unsafe tsconfig path and exits without spawning." time="0.0008008">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Rejects an unsafe tsconfig path and exits without spawning." time="0.0008465">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Logs and exits 1 when a build step fails." time="0.0613509">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - build command &gt; Logs and exits 1 when a build step fails." time="0.0597727">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - unknown command &gt; Prints usage and exits 1 for an unrecognized command." time="0.0007725">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - unknown command &gt; Prints usage and exits 1 for an unrecognized command." time="0.0007834">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; run() - unknown command &gt; Prints usage and exits 1 when no command is given." time="0.0005963">
+        <testcase classname="test/cli.test.ts" name="cli &gt; run() - unknown command &gt; Prints usage and exits 1 when no command is given." time="0.0006471">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; main-module auto-run guard &gt; Automatically invokes run() when the module&apos;s own file is the process entry point." time="0.001137">
+        <testcase classname="test/cli.test.ts" name="cli &gt; main-module auto-run guard &gt; Automatically invokes run() when the module&apos;s own file is the process entry point." time="0.0011964">
         </testcase>
-        <testcase classname="test/cli.test.ts" name="cli &gt; main-module auto-run guard &gt; Does not auto-invoke run() when imported as a module (not the process entry point)." time="0.0009175">
-        </testcase>
-    </testsuite>
-    <testsuite name="test/cli.validate.test.ts" timestamp="2026-08-08T00:02:25.164Z" hostname="Jane" tests="3" failures="0" errors="0" skipped="0" time="0.0023143">
-        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Accepts normal relative/absolute paths, including ones with spaces." time="0.0011252">
-        </testcase>
-        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects shell metacharacters." time="0.0001748">
-        </testcase>
-        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects an empty string." time="0.0000674">
+        <testcase classname="test/cli.test.ts" name="cli &gt; main-module auto-run guard &gt; Does not auto-invoke run() when imported as a module (not the process entry point)." time="0.0009563">
         </testcase>
     </testsuite>
-    <testsuite name="test/client.test.ts" timestamp="2026-08-08T00:02:25.165Z" hostname="Jane" tests="9" failures="0" errors="0" skipped="0" time="0.0067121">
-        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when there is no document (server/non-DOM environment)." time="0.0014177">
+    <testsuite name="test/cli.validate.test.ts" timestamp="2026-08-08T00:04:41.117Z" hostname="Jane" tests="3" failures="0" errors="0" skipped="0" time="0.002452">
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Accepts normal relative/absolute paths, including ones with spaces." time="0.0011531">
         </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when the props element is not found in the DOM." time="0.001072">
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects shell metacharacters." time="0.0001817">
         </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Parses and returns the serialized props when found." time="0.0002586">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Uses the given propsId to look up the element." time="0.0001608">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when the serialized content is not valid JSON." time="0.0001401">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Does nothing when there is no document (server/non-DOM environment)." time="0.0002166">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Logs an error and does not hydrate when the root element is missing." time="0.0011655">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Hydrates the root with the component and serialized props when found." time="0.0005494">
-        </testcase>
-        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Uses the given rootId and propsId." time="0.0005151">
+        <testcase classname="test/cli.validate.test.ts" name="cli isSafePathArg &gt; Rejects an empty string." time="0.0001078">
         </testcase>
     </testsuite>
-    <testsuite name="test/ReactDecorators.test.ts" timestamp="2026-08-08T00:02:25.166Z" hostname="Jane" tests="3" failures="0" errors="0" skipped="0" time="0.003048">
-        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Records a single string path as metadata." time="0.0017647">
+    <testsuite name="test/client.test.ts" timestamp="2026-08-08T00:04:41.117Z" hostname="Jane" tests="9" failures="0" errors="0" skipped="0" time="0.0069197">
+        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when there is no document (server/non-DOM environment)." time="0.0014795">
         </testcase>
-        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Records an array of paths as metadata." time="0.0001423">
+        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when the props element is not found in the DOM." time="0.0011153">
         </testcase>
-        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Concatenates paths across repeated applications on the same target." time="0.0001161">
+        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Parses and returns the serialized props when found." time="0.0002495">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Uses the given propsId to look up the element." time="0.0001902">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; getHydrationProps &gt; Returns undefined when the serialized content is not valid JSON." time="0.0001266">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Does nothing when there is no document (server/non-DOM environment)." time="0.0001944">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Logs an error and does not hydrate when the root element is missing." time="0.001147">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Hydrates the root with the component and serialized props when found." time="0.0009941">
+        </testcase>
+        <testcase classname="test/client.test.ts" name="client &gt; hydrateRoute &gt; Uses the given rootId and propsId." time="0.0002497">
         </testcase>
     </testsuite>
-    <testsuite name="test/ReactRoute.more.test.ts" timestamp="2026-08-08T00:02:25.167Z" hostname="Jane" tests="34" failures="0" errors="0" skipped="0" time="0.1390789">
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Loads the Vite manifest once in production when manifestPath is configured." time="0.0029681">
+    <testsuite name="test/ReactDecorators.test.ts" timestamp="2026-08-08T00:04:41.118Z" hostname="Jane" tests="3" failures="0" errors="0" skipped="0" time="0.0032615">
+        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Records a single string path as metadata." time="0.0017653">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Logs a warning and leaves the manifest unset when the manifest file is invalid JSON." time="0.0025869">
+        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Records an array of paths as metadata." time="0.0001519">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Watches the manifest file for changes in dev mode and debounces the reload notification." time="0.0067478">
+        <testcase classname="test/ReactDecorators.test.ts" name="ReactService &gt; Concatenates paths across repeated applications on the same target." time="0.0001292">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Does not throw when fs.watch fails synchronously (e.g. manifest path does not exist)." time="0.0008511">
+    </testsuite>
+    <testsuite name="test/ReactRoute.more.test.ts" timestamp="2026-08-08T00:04:41.119Z" hostname="Jane" tests="34" failures="0" errors="0" skipped="0" time="0.1073885">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Loads the Vite manifest once in production when manifestPath is configured." time="0.0029359">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Skips registering a react service for a factory-tracked entry that has no prototype." time="0.0003033">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Logs a warning and leaves the manifest unset when the manifest file is invalid JSON." time="0.0023565">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Does not map a react service path when newInstance resolves no instance." time="0.0005061">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Watches the manifest file for changes in dev mode and debounces the reload notification." time="0.0032853">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Maps a react service under its raw path when that path does not start with the route prefix." time="0.0003686">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Does not throw when fs.watch fails synchronously (e.g. manifest path does not exist)." time="0.0007738">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Maps a react service to pageSegment &apos;/&apos; when its path is exactly the route prefix." time="0.0002572">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Skips registering a react service for a factory-tracked entry that has no prototype." time="0.0003012">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.hashRequest cache eviction &gt; Clears the shared hash cache once it grows past 10000 entries and keeps working." time="0.035751">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Does not map a react service path when newInstance resolves no instance." time="0.0005084">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.fetchProps default &gt; Returns an empty object when not overridden by a subclass." time="0.0002171">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Maps a react service under its raw path when that path does not start with the route prefix." time="0.0003822">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveAppFile edge cases &gt; Falls back to an empty main-entry path when process.argv[1] is unset." time="0.0002962">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.init Tests &gt; Maps a react service to pageSegment &apos;/&apos; when its path is exactly the route prefix." time="0.0002785">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Streams the SSE handshake for a new connection." time="0.0004703">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.hashRequest cache eviction &gt; Clears the shared hash cache once it grows past 10000 entries and keeps working." time="0.024861">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Decrements the connection count and detaches the reload listener on abort." time="0.0002119">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.fetchProps default &gt; Returns an empty object when not overridden by a subclass." time="0.0002157">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Responds 503 and does not open a stream once at the max connection count." time="0.0003041">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveAppFile edge cases &gt; Falls back to an empty main-entry path when process.argv[1] is unset." time="0.0003178">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get production cache &gt; Returns the cached response body directly on a cache hit, without rendering." time="0.0003323">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Streams the SSE handshake for a new connection." time="0.0004174">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get production cache &gt; Renders and writes through to the cache on a cache miss." time="0.0065435">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Decrements the connection count and detaches the reload listener on abort." time="0.0002243">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Resolves the pageSegment to &apos;/&apos; when the request path exactly equals the route prefix." time="0.0016091">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get dev-reload SSE endpoint &gt; Responds 503 and does not open a stream once at the max connection count." time="0.0002767">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Falls back to an empty routeProps object when fetchProps resolves undefined." time="0.0017414">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get production cache &gt; Returns the cached response body directly on a cache hit, without rendering." time="0.0003218">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Spreads the picked user fields into props when userFields is configured and req.user is present." time="0.0035396">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get production cache &gt; Renders and writes through to the cache on a cache miss." time="0.0055352">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Does not inject the dev-reload script when isDevMode() is false." time="0.0017506">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Resolves the pageSegment to &apos;/&apos; when the request path exactly equals the route prefix." time="0.0015281">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Falls back to the hard-coded 500 page when no _500.tsx exists." time="0.0081228">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Falls back to an empty routeProps object when fetchProps resolves undefined." time="0.001682">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Falls back to the hard-coded 500 page when importing _500.tsx itself throws." time="0.0096924">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Spreads the picked user fields into props when userFields is configured and req.user is present." time="0.0032573">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Renders the _500 page unwrapped when there is no _layout.tsx." time="0.0098717">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get pageSegment/props edge cases &gt; Does not inject the dev-reload script when isDevMode() is false." time="0.0014107">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectDevReloadScript Tests &gt; Injects before &lt;/body&gt; when present." time="0.000191">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Falls back to the hard-coded 500 page when no _500.tsx exists." time="0.004784">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectDevReloadScript Tests &gt; Injects before &lt;/html&gt; when there is no &lt;/body&gt;." time="0.0000941">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Falls back to the hard-coded 500 page when importing _500.tsx itself throws." time="0.0078796">
+        </testcase>
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get 500 fallback pages &gt; Renders the _500 page unwrapped when there is no _layout.tsx." time="0.00888">
+        </testcase>
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectDevReloadScript Tests &gt; Injects before &lt;/body&gt; when present." time="0.0001667">
+        </testcase>
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectDevReloadScript Tests &gt; Injects before &lt;/html&gt; when there is no &lt;/body&gt;." time="0.0000893">
         </testcase>
         <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectDevReloadScript Tests &gt; Appends the script when there is neither &lt;/body&gt; nor &lt;/html&gt;." time="0.0000806">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Returns null in dev mode when manifestPath is not configured." time="0.0002083">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Returns null in dev mode when manifestPath is not configured." time="0.0001623">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Reads and parses the manifest from disk on every call in dev mode." time="0.0014532">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Reads and parses the manifest from disk on every call in dev mode." time="0.0012563">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Returns null in dev mode when the manifest file cannot be read or parsed." time="0.0002737">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.resolveManifest Tests &gt; Returns null in dev mode when the manifest file cannot be read or parsed." time="0.0002329">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectHydrationAssets Tests &gt; Serializes null in place of undefined/null props." time="0.0013149">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.injectHydrationAssets Tests &gt; Serializes null in place of undefined/null props." time="0.0012212">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Injects the hydration root, serialized props, css links, and bundle script." time="0.0077778">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Injects the hydration root, serialized props, css links, and bundle script." time="0.0035122">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Falls back to the 500 page when hydrate=true but no manifest is configured." time="0.0027129">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Falls back to the 500 page when hydrate=true but no manifest is configured." time="0.002781">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Appends the hydration payload before &lt;/html&gt; when the page has no &lt;/body&gt;." time="0.007295">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Appends the hydration payload before &lt;/html&gt; when the page has no &lt;/body&gt;." time="0.0069876">
         </testcase>
-        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Appends the hydration payload at the end when the page has neither &lt;/body&gt; nor &lt;/html&gt;." time="0.0114404">
+        <testcase classname="test/ReactRoute.more.test.ts" name="ReactRoute.get hydration Tests &gt; Appends the hydration payload at the end when the page has neither &lt;/body&gt; nor &lt;/html&gt;." time="0.0071287">
         </testcase>
     </testsuite>
-    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-08-08T00:02:25.170Z" hostname="Jane" tests="44" failures="0" errors="0" skipped="0" time="0.174029">
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0418622">
+    <testsuite name="test/ReactRoute.test.ts" timestamp="2026-08-08T00:04:41.122Z" hostname="Jane" tests="45" failures="0" errors="0" skipped="0" time="0.1399482">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Can serve the home page from app/index.tsx." time="0.0357546">
             <system-out>
-2026-08-08T00:02:22.488Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-08-08T00:04:38.852Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
             <system-err>
@@ -171,171 +171,177 @@ Your app (or one of its dependencies) is using an outdated JSX transform. Update
 
             </system-err>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.0036401">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Serves the home page from the bare /app path (no trailing slash) via getIndex()." time="0.0033731">
             <system-out>
-2026-08-08T00:02:22.514Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-08-08T00:04:38.875Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0084955">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Wraps pages in _layout.tsx." time="0.002555">
             <system-out>
-2026-08-08T00:02:22.518Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
+2026-08-08T00:04:38.878Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0092016">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Calls fetchProps and passes data to the page component." time="0.0073552">
             <system-out>
-2026-08-08T00:02:22.526Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
+2026-08-08T00:04:38.881Z [34mdebug[39m: [ReactRoute] Rendering &quot;/pets&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0097278">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Supports index convention — /auth/login resolves to app/auth/login/index.tsx." time="0.0074319">
             <system-out>
-2026-08-08T00:02:22.535Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
+2026-08-08T00:04:38.888Z [34mdebug[39m: [ReactRoute] Rendering &quot;/auth/login&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.0032711">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 status and renders _404.tsx for missing paths." time="0.0071424">
             <system-out>
-2026-08-08T00:02:22.545Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-08-08T00:04:38.896Z [34mdebug[39m: [ReactRoute] Rendering &quot;/does-not-exist&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0105104">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Injects dev live-reload script in non-production mode." time="0.003044">
             <system-out>
-2026-08-08T00:02:22.548Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
+2026-08-08T00:04:38.903Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 for a path traversal attempt via the HTTP layer and never leaks file contents." time="0.0048977">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; DI fetchProps override provides service data to the page component." time="0.0073738">
             <system-out>
-2026-08-08T00:02:22.559Z [34mdebug[39m: No resource could be found with the specified identifier.
+2026-08-08T00:04:38.906Z [34mdebug[39m: [ReactRoute] Rendering &quot;/di-pets&quot;
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Renders the full error message on a 500 outside of production." time="0.0231174">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Returns 404 for a path traversal attempt via the HTTP layer and never leaks file contents." time="0.0044398">
             <system-out>
-2026-08-08T00:02:22.564Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
-
-2026-08-08T00:02:22.570Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
+2026-08-08T00:04:38.914Z [34mdebug[39m: No resource could be found with the specified identifier.
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Redacts the error message on a 500 in production." time="0.0038363">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Renders the full error message on a 500 outside of production." time="0.0118226">
             <system-out>
-2026-08-08T00:02:22.587Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
+2026-08-08T00:04:38.918Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
 
-2026-08-08T00:02:22.588Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
+2026-08-08T00:04:38.923Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Does not expose the dev-reload script or SSE endpoint when NODE_ENV is misconfigured." time="0.0030174">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Redacts the error message on a 500 in production." time="0.0036914">
             <system-out>
-2026-08-08T00:02:22.591Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+2026-08-08T00:04:38.930Z [34mdebug[39m: [ReactRoute] Rendering &quot;/_throws&quot;
 
-2026-08-08T00:02:22.592Z [34mdebug[39m: [ReactRoute] Rendering &quot;/__rapidrest__/reload&quot;
+2026-08-08T00:04:38.931Z [31merror[39m: [ReactRoute] SSR error for &quot;/app/_throws&quot;: db connection failed at /secret/internal/path
 
             </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a page file that exists within the app directory." time="0.0002675">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute Tests &gt; Does not expose the dev-reload script or SSE endpoint when NODE_ENV is misconfigured." time="0.0029857">
+            <system-out>
+2026-08-08T00:04:38.933Z [34mdebug[39m: [ReactRoute] Rendering &quot;/&quot;
+
+2026-08-08T00:04:38.935Z [34mdebug[39m: [ReactRoute] Rendering &quot;/__rapidrest__/reload&quot;
+
+            </system-out>
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a nested page file using the index convention." time="0.0002088">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a page file that exists within the app directory." time="0.0002542">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a segment with no matching file." time="0.0001845">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Resolves a nested page file using the index convention." time="0.0002172">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a path traversal attempt that escapes the app directory." time="0.000081">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a segment with no matching file." time="0.000203">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a deep path traversal attempt reaching outside the project." time="0.0000693">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a path traversal attempt that escapes the app directory." time="0.0000792">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a traversal attempt that only partially matches the app dir prefix." time="0.0000633">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a deep path traversal attempt reaching outside the project." time="0.0000694">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Still resolves segments that legitimately stay within the app directory after normalization." time="0.0001678">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Returns null for a traversal attempt that only partially matches the app dir prefix." time="0.0000607">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Resolves an entry via a direct top-level key match." time="0.000298">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveAppFile Tests &gt; Still resolves segments that legitimately stay within the app directory after normalization." time="0.0001665">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Falls back to matching a manifest entry&apos;s `name` field when the top-level key is prefixed (e.g. Vite&apos;s virtual hydration-module key for createViteConfig() entries)." time="0.0001946">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Resolves an entry via a direct top-level key match." time="0.000299">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Includes css asset paths from the manifest entry when present." time="0.0005123">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Falls back to matching a manifest entry&apos;s `name` field when the top-level key is prefixed (e.g. Vite&apos;s virtual hydration-module key for createViteConfig() entries)." time="0.0001975">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Throws when neither the direct key nor any entry&apos;s `name` field matches." time="0.0005711">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Includes css asset paths from the manifest entry when present." time="0.0005204">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false without touching the filesystem when manifestPath is unconfigured." time="0.0001551">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.resolveClientUrls Tests &gt; Throws when neither the direct key nor any entry&apos;s `name` field matches." time="0.0005865">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Serves a file that exists under the derived outDir (manifestPath&apos;s grandparent dir)." time="0.0007934">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false without touching the filesystem when manifestPath is unconfigured." time="0.0001549">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a file that does not exist under outDir." time="0.0002342">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Serves a file that exists under the derived outDir (manifestPath&apos;s grandparent dir)." time="0.0008471">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a directory (not a file)." time="0.0003472">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a file that does not exist under outDir." time="0.0002666">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for an extension not on the allow-list, even though the file exists." time="0.0003303">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a directory (not a file)." time="0.0001853">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a path traversal attempt that escapes outDir." time="0.0001195">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for an extension not on the allow-list, even though the file exists." time="0.000168">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; get() short-circuits to the asset response, bypassing page resolution entirely." time="0.0003826">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; Returns false for a path traversal attempt that escapes outDir." time="0.0001004">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute hydration + _404 interaction &gt; Hydrates a genuinely-matched page (200) when its manifest entry is present." time="0.0019014">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.tryServeAsset Tests &gt; get() short-circuits to the asset response, bypassing page resolution entirely." time="0.0003586">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute hydration + _404 interaction &gt; Renders _404 without attempting hydration, even though _404 has no manifest entry." time="0.0014783">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute hydration + _404 interaction &gt; Hydrates a genuinely-matched page (200) when its manifest entry is present." time="0.0018067">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces different hashes for requests differing only in query." time="0.0032248">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute hydration + _404 interaction &gt; Renders _404 without attempting hydration, even though _404 has no manifest entry." time="0.0046527">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces the same hash regardless of query key order." time="0.0001242">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces different hashes for requests differing only in query." time="0.0004957">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Does not throw when query is undefined and matches an empty query." time="0.000091">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Produces the same hash regardless of query key order." time="0.0001232">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Removes every &apos;&lt;&apos; character, subsuming the exact literal &apos;&lt;/script&gt;&apos; case." time="0.0000952">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.hashRequest Tests &gt; Does not throw when query is undefined and matches an empty query." time="0.0001017">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Blocks the whitespace-variant &lt;/script&gt; bypass that a literal-match regex misses." time="0.0000717">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Removes every &apos;&lt;&apos; character, subsuming the exact literal &apos;&lt;/script&gt;&apos; case." time="0.0000842">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Round-trips through JSON.parse without data loss." time="0.0001184">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Blocks the whitespace-variant &lt;/script&gt; bypass that a literal-match regex misses." time="0.0000641">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined by default (no userFields configured) even when a user is present." time="0.0000769">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.escapeForInlineScript Tests &gt; Round-trips through JSON.parse without data loss." time="0.0001123">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns only the allow-listed fields when userFields is configured." time="0.00013">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined by default (no userFields configured) even when a user is present." time="0.0000815">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Silently skips an allow-listed field that is not present on the user object." time="0.0001334">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns only the allow-listed fields when userFields is configured." time="0.0001281">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined when there is no user, regardless of userFields." time="0.0001092">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Silently skips an allow-listed field that is not present on the user object." time="0.0001302">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is false for an unset or non-standard NODE_ENV (fail closed)." time="0.0002691">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.pickUserFields Tests &gt; Returns undefined when there is no user, regardless of userFields." time="0.0001082">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true for &apos;development&apos; and &apos;test&apos;." time="0.0001384">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is false for an unset or non-standard NODE_ENV (fail closed)." time="0.000255">
         </testcase>
-        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true when VITEST is set, regardless of NODE_ENV." time="0.0001126">
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true for &apos;development&apos; and &apos;test&apos;." time="0.0001362">
+        </testcase>
+        <testcase classname="test/ReactRoute.test.ts" name="ReactRoute.isDevMode Tests &gt; Is true when VITEST is set, regardless of NODE_ENV." time="0.0001099">
         </testcase>
     </testsuite>
-    <testsuite name="test/vite.test.ts" timestamp="2026-08-08T00:02:25.187Z" hostname="Jane" tests="16" failures="0" errors="0" skipped="0" time="0.114421">
-        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Defaults appDir to &apos;app&apos;, outDir to &apos;dist/public&apos;, and includes no user plugins." time="0.107837">
+    <testsuite name="test/vite.test.ts" timestamp="2026-08-08T00:04:41.128Z" hostname="Jane" tests="16" failures="0" errors="0" skipped="0" time="0.0979809">
+        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Defaults appDir to &apos;app&apos;, outDir to &apos;dist/public&apos;, and includes no user plugins." time="0.0917902">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Appends user-supplied plugins after the built-in ones." time="0.0002908">
+        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Appends user-supplied plugins after the built-in ones." time="0.0002525">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Honors a custom outDir." time="0.0001266">
+        <testcase classname="test/vite.test.ts" name="createViteConfig &gt; Honors a custom outDir." time="0.0001183">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Returns null when appDir does not exist." time="0.0002551">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Returns null when appDir does not exist." time="0.0002578">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Returns null when appDir exists but has no matching entries." time="0.0003167">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Returns null when appDir exists but has no matching entries." time="0.0003062">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Discovers top-level .tsx files, excludes underscore-prefixed files/dirs, includes subdirectory index.tsx one level deep, and excludes subdirectories without an index.tsx." time="0.001302">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Discovers top-level .tsx files, excludes underscore-prefixed files/dirs, includes subdirectory index.tsx one level deep, and excludes subdirectories without an index.tsx." time="0.0010923">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Discovers index.tsx at arbitrary nesting depth (regression: previously only 1 level deep was scanned, so e.g. auth/login/index.tsx was silently skipped), while still excluding non-index files and underscore-prefixed directories at any depth." time="0.0006153">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Discovers index.tsx at arbitrary nesting depth (regression: previously only 1 level deep was scanned, so e.g. auth/login/index.tsx was silently skipped), while still excluding non-index files and underscore-prefixed directories at any depth." time="0.0005569">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing string rollup input." time="0.0003377">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing string rollup input." time="0.0003644">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing array rollup input." time="0.0003572">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing array rollup input." time="0.0003595">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing object rollup input." time="0.0002976">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Merges with an existing object rollup input." time="0.0002821">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Defaults to an empty existing input when opts.input is unset." time="0.0002787">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Defaults to an empty existing input when opts.input is unset." time="0.0002803">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Preserves other rollup options alongside the merged input." time="0.0002707">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; options() — page discovery &gt; Preserves other rollup options alongside the merged input." time="0.0002773">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; resolveId() &gt; Resolves a virtual entry id." time="0.0002885">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; resolveId() &gt; Resolves a virtual entry id." time="0.0002919">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; resolveId() &gt; Ignores a non-virtual id." time="0.0001463">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; resolveId() &gt; Ignores a non-virtual id." time="0.0001242">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; load() &gt; Generates a hydration entry module for a virtual id." time="0.0003971">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; load() &gt; Generates a hydration entry module for a virtual id." time="0.0003818">
         </testcase>
-        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; load() &gt; Ignores a non-virtual id." time="0.0001046">
+        <testcase classname="test/vite.test.ts" name="rapidrest-hydration plugin &gt; load() &gt; Ignores a non-virtual id." time="0.0001087">
         </testcase>
     </testsuite>
 </testsuites>
