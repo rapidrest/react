@@ -6,13 +6,11 @@ import { EventEmitter } from "events";
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
-import { DatabaseDecorators, HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapidrest/service-core";
-import { Redis } from "ioredis";
+import { HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapidrest/service-core";
 import React, { ComponentType, PropsWithChildren } from "react";
 import { renderToString } from "react-dom/server";
-import { ObjectDecorators } from "@rapidrest/core";
+import { ObjectDecorators, RedisStore } from "@rapidrest/core";
 
-const { RedisConnection } = DatabaseDecorators;
 const { Config, Init, Inject, Logger } = ObjectDecorators;
 const { ContentType, Get, Request, Response } = RouteDecorators;
 
@@ -22,6 +20,7 @@ const _hashCache: Map<string, string> = new Map();
 const _devReloadEmitter = new EventEmitter();
 _devReloadEmitter.setMaxListeners(200);
 
+const CACHE_BASE_KEY = "react.cache";
 const DEV_RELOAD_PATH = "/__rapidrest__/reload";
 
 /** MIME types for serving built hydration assets (JS bundles, CSS, source maps, fonts, images). */
@@ -41,6 +40,10 @@ const ASSET_MIME_TYPES: Record<string, string> = {
     ".woff2": "font/woff2",
     ".ttf": "font/ttf",
 };
+
+interface CacheEntry {
+    hash: string;
+}
 
 /**
  * Base class for HTTP routes that serve React pages from the `app/` directory.
@@ -73,8 +76,8 @@ export class ReactRoute {
     // `Redis` is unresolved at decoration time (e.g. a circular import); since it's a real,
     // always-successfully-imported class here, that fallback branch is structurally unreachable.
     /* v8 ignore start */
-    @RedisConnection("cache")
-    protected cacheClient?: Redis;
+    @Inject(RedisStore, { args: [CACHE_BASE_KEY] })
+    protected cache?: RedisStore;
     /* v8 ignore stop */
 
     /** Filesystem path to the app directory, relative to cwd. Default is `apps/app`. */
@@ -458,7 +461,7 @@ export class ReactRoute {
             return;
         }
 
-        const cacheClient = process.env.NODE_ENV === "production" ? this.cacheClient : undefined;
+        const cacheClient = process.env.NODE_ENV === "production" ? this.cache : undefined;
         const cacheKey = cacheClient ? this.hashRequest(req) : null;
 
         // Production cache lookup. A read failure is treated as a cache miss (fall through to
@@ -467,9 +470,9 @@ export class ReactRoute {
         // that and surface a raw error instead of a page.
         if (cacheClient && cacheKey) {
             try {
-                const cached = await cacheClient.get(cacheKey);
+                const cached = await cacheClient.load(cacheKey);
                 if (cached) {
-                    return cached;
+                    return cached.html;
                 }
             } catch (err) {
                 this.logger.warn(`[ReactRoute] Cache read failed for "${req.path}":`, err);
@@ -510,7 +513,7 @@ export class ReactRoute {
         // a cache-backend error here must not crash requests that otherwise rendered fine.
         // Promise.resolve() also tolerates cache client stubs/mocks that don't return a promise.
         if (isLeader && cacheClient && cacheKey) {
-            Promise.resolve(cacheClient.setex(cacheKey, this.cacheTTL, result.html)).catch((err) => {
+            Promise.resolve(cacheClient.save(cacheKey, { html: result.html }, this.cacheTTL)).catch((err) => {
                 this.logger.warn(`[ReactRoute] Failed to write cache for "${req.path}":`, err);
             });
         }

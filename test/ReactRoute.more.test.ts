@@ -79,7 +79,7 @@ class TestableReactRoute extends ReactRoute {
     }
 
     public setCacheClient(c: any): void {
-        (this as any).cacheClient = c;
+        (this as any).cache = c;
     }
 
     public setDevReloadConnectionCount(n: number): void {
@@ -428,31 +428,31 @@ describe("ReactRoute.get production cache", () => {
     it("Returns the cached response body directly on a cache hit, without rendering.", async () => {
         const route = new AppRoute();
         route.setLogger(noopLogger);
-        const get = vi.fn().mockResolvedValue("<html>cached-value</html>");
-        route.setCacheClient({ get, setex: vi.fn() });
+        const load = vi.fn().mockResolvedValue({ html: "<html>cached-value</html>" });
+        route.setCacheClient({ load, save: vi.fn() });
         const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
         expect(result).toBe("<html>cached-value</html>");
-        expect(get).toHaveBeenCalled();
+        expect(load).toHaveBeenCalled();
     });
 
     it("Renders and writes through to the cache on a cache miss.", async () => {
         const route = new AppRoute();
         route.setLogger(noopLogger);
-        const get = vi.fn().mockResolvedValue(undefined);
-        const setex = vi.fn();
-        route.setCacheClient({ get, setex });
+        const load = vi.fn().mockResolvedValue(undefined);
+        const save = vi.fn();
+        route.setCacheClient({ load, save });
         const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
         expect(result).toContain("<p>Home</p>");
-        expect(setex).toHaveBeenCalledWith(expect.any(String), (route as any).cacheTTL, expect.any(String));
+        expect(save).toHaveBeenCalledWith(expect.any(String), expect.any(Object), (route as any).cacheTTL);
     });
 
     it("Falls through to rendering (rather than throwing) when the cache read fails.", async () => {
         const route = new AppRoute();
         const warn = vi.fn();
         route.setLogger({ ...noopLogger, warn });
-        const get = vi.fn().mockRejectedValue(new Error("redis down"));
-        const setex = vi.fn();
-        route.setCacheClient({ get, setex });
+        const load = vi.fn().mockRejectedValue(new Error("redis down"));
+        const save = vi.fn();
+        route.setCacheClient({ load, save });
         const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
         expect(String(result)).toContain("<p>Home</p>");
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("Cache read failed"), expect.any(Error));
@@ -462,9 +462,9 @@ describe("ReactRoute.get production cache", () => {
         const route = new AppRoute();
         const warn = vi.fn();
         route.setLogger({ ...noopLogger, warn });
-        const get = vi.fn().mockResolvedValue(undefined);
-        const setex = vi.fn().mockRejectedValue(new Error("redis down"));
-        route.setCacheClient({ get, setex });
+        const load = vi.fn().mockResolvedValue(undefined);
+        const save = vi.fn().mockRejectedValue(new Error("redis down"));
+        route.setCacheClient({ load, save });
         const result = await route.get(fakeRequest({ path: "/" }), fakeResponse());
         expect(String(result)).toContain("<p>Home</p>");
         // The write failure is reported asynchronously (fire-and-forget) — flush microtasks.
@@ -487,9 +487,9 @@ describe("ReactRoute.get production cache", () => {
         }
         const route = new SlowRoute();
         route.setLogger(noopLogger);
-        const get = vi.fn().mockResolvedValue(undefined);
-        const setex = vi.fn();
-        route.setCacheClient({ get, setex });
+        const load = vi.fn().mockResolvedValue(undefined);
+        const save = vi.fn();
+        route.setCacheClient({ load, save });
 
         const req = fakeRequest({ path: "/" });
         const p1 = route.get(req, fakeResponse());
@@ -502,7 +502,7 @@ describe("ReactRoute.get production cache", () => {
         expect(fetchCount).toBe(1);
         expect(String(r1)).toContain("<p>Home</p>");
         expect(String(r2)).toContain("<p>Home</p>");
-        expect(setex).toHaveBeenCalledTimes(1);
+        expect(save).toHaveBeenCalledTimes(1);
     });
 });
 
