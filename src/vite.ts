@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
-import fs from "node:fs";
 import path from "node:path";
+import { scanAppDirPages } from "./appDirScan.js";
 
 /**
  * Configuration options for createViteConfig.
@@ -42,39 +42,15 @@ const VIRTUAL_PREFIX = "\0rapidrest-entry:";
 
 /**
  * Scans `appDir` and returns a rollup input map for all page entry points, matching
- * `ReactRoute.resolveAppFile()`'s convention at any nesting depth.
- *
- * Included:
- * - `app/*.tsx` — top-level files, excluding those starting with `_`
- * - `app/**\/index.tsx` — index files at any depth, excluding `_*` dirs anywhere in the path
- *
- * Non-index `.tsx` files inside subdirectories are sub-components, not entries, and are skipped.
+ * `ReactRoute.resolveAppFile()`'s convention at any nesting depth (see `scanAppDirPages()`
+ * for the exact convention).
  */
 function findPageEntries(appDir: string): Record<string, string> {
     const result: Record<string, string> = {};
-    const absRoot = path.resolve(appDir);
-    if (!fs.existsSync(absRoot)) return result;
-
-    const walk = (dir: string, isRoot: boolean) => {
-        for (const entry of fs.readdirSync(dir)) {
-            if (entry.startsWith("_")) continue;
-            const fullPath = path.join(dir, entry);
-            const stat = fs.statSync(fullPath);
-
-            if (stat.isFile() && entry.endsWith(".tsx")) {
-                // Top-level: any .tsx file is an entry. Nested: only index.tsx is.
-                if (isRoot || entry === "index.tsx") {
-                    const relPath = path.relative(absRoot, fullPath).replace(/\\/g, "/");
-                    const key = path.posix.join(appDir.replace(/\\/g, "/"), relPath);
-                    result[key] = VIRTUAL_PREFIX + key;
-                }
-            } else if (stat.isDirectory()) {
-                walk(fullPath, false);
-            }
-        }
-    };
-
-    walk(absRoot, true);
+    for (const relPath of scanAppDirPages(appDir)) {
+        const key = path.posix.join(appDir.replace(/\\/g, "/"), relPath);
+        result[key] = VIRTUAL_PREFIX + key;
+    }
     return result;
 }
 

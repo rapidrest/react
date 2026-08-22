@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import { vi } from "vitest";
 import spawn from "cross-spawn";
 import {
+    findExportEntry,
     findServerEntry,
     isAvailable,
     resolveLocalBin,
@@ -124,12 +125,37 @@ describe("cli", () => {
         });
     });
 
+    describe("findExportEntry", () => {
+        it("Finds the first matching candidate in priority order.", () => {
+            writeFile("src/export.tsx", "");
+            writeFile("src/export.ts", "");
+            expect(findExportEntry()).toBe("src/export.ts");
+        });
+
+        it("Throws when no candidate exists.", () => {
+            expect(() => findExportEntry()).toThrow(/Could not find a static export entry point/);
+        });
+    });
+
     describe("spawnProcess", () => {
         it("Logs and exits when the underlying process fails to start.", () => {
             const proc = spawnProcess("some-cmd", ["--flag"]);
             expect(() => proc.emit("error", new Error("boom"))).toThrow(ProcessExitSignal);
             expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to start "some-cmd": boom'));
             expect(exitSpy).toHaveBeenCalledWith(1);
+        });
+
+        it("Spawns without a custom env by default.", () => {
+            spawnProcess("some-cmd", ["--flag"]);
+            expect(vi.mocked(spawn)).toHaveBeenCalledWith("some-cmd", ["--flag"], { stdio: "inherit" });
+        });
+
+        it("Merges a provided env into process.env.", () => {
+            spawnProcess("some-cmd", ["--flag"], { NODE_ENV: "production" });
+            expect(vi.mocked(spawn)).toHaveBeenCalledWith("some-cmd", ["--flag"], {
+                stdio: "inherit",
+                env: expect.objectContaining({ NODE_ENV: "production" }),
+            });
         });
     });
 
@@ -196,6 +222,17 @@ describe("cli", () => {
             await vi.waitFor(() => expect(children.length).toBe(1));
             children[0].emit("exit", 3);
             await expect(promise).rejects.toThrow(/"tsc" exited with code 3/);
+        });
+
+        it("Passes a step's env through to spawnProcess.", async () => {
+            const promise = runSequential([["tsx", ["src/export.ts"], { NODE_ENV: "production" }]]);
+            await vi.waitFor(() => expect(children.length).toBe(1));
+            expect(vi.mocked(spawn)).toHaveBeenNthCalledWith(1, "tsx", ["src/export.ts"], {
+                stdio: "inherit",
+                env: expect.objectContaining({ NODE_ENV: "production" }),
+            });
+            children[0].emit("exit", 0);
+            await expect(promise).resolves.toBeUndefined();
         });
     });
 
@@ -295,6 +332,62 @@ describe("cli", () => {
             children[0].emit("exit", 5);
             await vi.waitFor(() =>
                 expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('[rapidreact] Build failed:')),
+            );
+            expect(exitSpy).toHaveBeenCalledWith(1);
+        });
+    });
+
+    describe("run() - export command", () => {
+        it("Runs vite build then the export entry via tsx with NODE_ENV=production, in order.", async () => {
+            writeFile("src/export.ts", "");
+            process.argv = ["node", "cli.js", "export"];
+            run();
+            await vi.waitFor(() => expect(children.length).toBe(1));
+            expect(vi.mocked(spawn)).toHaveBeenNthCalledWith(1, "vite", ["build"], { stdio: "inherit" });
+            children[0].emit("exit", 0);
+            await vi.waitFor(() => expect(children.length).toBe(2));
+            expect(vi.mocked(spawn)).toHaveBeenNthCalledWith(2, "tsx", ["src/export.ts"], {
+                stdio: "inherit",
+                env: expect.objectContaining({ NODE_ENV: "production" }),
+            });
+            children[1].emit("exit", 0);
+            await vi.waitFor(() => expect(exitSpy).not.toHaveBeenCalled());
+        });
+
+        it("Uses an explicit export entry argument instead of auto-detecting.", async () => {
+            process.argv = ["node", "cli.js", "export", "src/myexport.ts"];
+            run();
+            await vi.waitFor(() => expect(children.length).toBe(1));
+            children[0].emit("exit", 0);
+            await vi.waitFor(() => expect(children.length).toBe(2));
+            expect(vi.mocked(spawn)).toHaveBeenNthCalledWith(2, "tsx", ["src/myexport.ts"], {
+                stdio: "inherit",
+                env: expect.objectContaining({ NODE_ENV: "production" }),
+            });
+        });
+
+        it("Rejects an unsafe export entry path and exits without spawning.", () => {
+            process.argv = ["node", "cli.js", "export", "src/export.ts; rm -rf /"];
+            expect(() => run()).toThrow(ProcessExitSignal);
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("Invalid export entry path"));
+            expect(children.length).toBe(0);
+        });
+
+        it("Throws when no export entry can be auto-detected.", () => {
+            process.argv = ["node", "cli.js", "export"];
+            expect(() => run()).toThrow(/Could not find a static export entry point/);
+            expect(children.length).toBe(0);
+        });
+
+        it("Logs and exits 1 when a step fails.", async () => {
+            exitSpy.mockImplementation(() => undefined as never);
+            writeFile("src/export.ts", "");
+            process.argv = ["node", "cli.js", "export"];
+            run();
+            await vi.waitFor(() => expect(children.length).toBe(1));
+            children[0].emit("exit", 7);
+            await vi.waitFor(() =>
+                expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('[rapidreact] Export failed:')),
             );
             expect(exitSpy).toHaveBeenCalledWith(1);
         });

@@ -19,8 +19,8 @@ export function isAvailable(name: string): boolean {
     return fs.existsSync(path.join(process.cwd(), "node_modules", ".bin", name));
 }
 
-export function spawnProcess(cmd: string, cmdArgs: string[]): ChildProcess {
-    const proc = spawn(cmd, cmdArgs, { stdio: "inherit" });
+export function spawnProcess(cmd: string, cmdArgs: string[], env?: Record<string, string>): ChildProcess {
+    const proc = spawn(cmd, cmdArgs, { stdio: "inherit", ...(env ? { env: { ...process.env, ...env } } : {}) });
     proc.on("error", (err) => {
         console.error(`[rapidreact] Failed to start "${cmd}": ${err.message}`);
         process.exit(1);
@@ -54,10 +54,10 @@ export function runParallel(procs: Array<[string, string[]]>): void {
     }
 }
 
-export async function runSequential(procs: Array<[string, string[]]>): Promise<void> {
-    for (const [cmd, cmdArgs] of procs) {
+export async function runSequential(procs: Array<[string, string[], Record<string, string>?]>): Promise<void> {
+    for (const [cmd, cmdArgs, env] of procs) {
         await new Promise<void>((resolve, reject) => {
-            const child = spawnProcess(resolveLocalBin(cmd), cmdArgs);
+            const child = spawnProcess(resolveLocalBin(cmd), cmdArgs, env);
             child.on("exit", (code) => {
                 if (code === 0) resolve();
                 else reject(new Error(`"${cmd}" exited with code ${code}`));
@@ -75,6 +75,19 @@ export function findServerEntry(): string {
         "[rapidreact] Could not find server entry point. " +
             "Expected one of: src/server.ts, src/server.tsx, src/index.ts, src/index.tsx. " +
             "Pass the path as an argument: rapidreact dev src/myserver.ts",
+    );
+}
+
+export function findExportEntry(): string {
+    const candidates = ["src/export.ts", "src/export.tsx"];
+    for (const candidate of candidates) {
+        if (fs.existsSync(path.join(process.cwd(), candidate))) return candidate;
+    }
+    throw new Error(
+        "[rapidreact] Could not find a static export entry point. " +
+            "Expected one of: src/export.ts, src/export.tsx. " +
+            "Pass the path as an argument: rapidreact export src/myexport.ts. " +
+            "See the README's Static Export section for how to write one.",
     );
 }
 
@@ -124,6 +137,25 @@ export function run(): void {
         break;
     }
 
+    case "export": {
+        const exportEntry = args[0] ?? findExportEntry();
+        if (!isSafePathArg(exportEntry)) {
+            console.error(`[rapidreact] Invalid export entry path: "${exportEntry}"`);
+            process.exit(1);
+        }
+        console.log("[rapidreact] Exporting static site...");
+        console.log("  Client: vite build");
+        console.log(`  Export: tsx ${exportEntry}`);
+        runSequential([
+            ["vite", ["build"]],
+            ["tsx", [exportEntry], { NODE_ENV: "production" }],
+        ]).catch((err) => {
+            console.error(`[rapidreact] Export failed: ${err.message}`);
+            process.exit(1);
+        });
+        break;
+    }
+
     default:
         console.error(`
 Usage: rapidreact <command> [options]
@@ -137,11 +169,18 @@ Commands:
   build [tsconfig]  Build for production: compile server with tsc, then bundle client with vite.
                     tsconfig: tsconfig file path (default: tsconfig.json)
 
+  export [entry]    Crawl every app page and write a static HTML/CSS/JS site to disk.
+                    Runs vite build, then the export entry with tsx (NODE_ENV=production).
+                    entry: export entry file path (default: src/export.ts or src/export.tsx)
+                    See the README's Static Export section for the entry file convention.
+
 Examples:
   rapidreact dev
   rapidreact dev src/server.ts
   rapidreact build
   rapidreact build tsconfig.server.json
+  rapidreact export
+  rapidreact export src/myexport.ts
 `);
         process.exit(1);
     }
