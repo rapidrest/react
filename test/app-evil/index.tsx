@@ -1,5 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2026 Jean-Philippe Steinmetz
+// SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 // Fixture used to verify that a sibling directory sharing the app dir's name as
 // a prefix (e.g. "test/app" vs "test/app-evil") is not treated as being inside
