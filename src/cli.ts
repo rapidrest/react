@@ -91,15 +91,28 @@ export function findExportEntry(): string {
     );
 }
 
+/** Validates a path-shaped CLI argument, exiting with a labeled error if it's unsafe. */
+function validatePathArgOrExit(value: string, label: string): void {
+    if (!isSafePathArg(value)) {
+        console.error(`[rapidreact] Invalid ${label}: "${value}"`);
+        process.exit(1);
+    }
+}
+
+/** Runs `steps` sequentially, exiting with a labeled error if any step fails. */
+function runStepsOrExit(steps: Array<[string, string[], Record<string, string>?]>, label: string): void {
+    runSequential(steps).catch((err) => {
+        console.error(`[rapidreact] ${label} failed: ${err.message}`);
+        process.exit(1);
+    });
+}
+
 export function run(): void {
     const [, , command, ...args] = process.argv;
     switch (command) {
     case "dev": {
         const serverEntry = args[0] ?? findServerEntry();
-        if (!isSafePathArg(serverEntry)) {
-            console.error(`[rapidreact] Invalid server entry path: "${serverEntry}"`);
-            process.exit(1);
-        }
+        validatePathArgOrExit(serverEntry, "server entry path");
         console.log("[rapidreact] Starting in development mode...");
 
         // Prefer nodemon for clean process restarts; fall back to tsx --watch
@@ -117,10 +130,7 @@ export function run(): void {
 
     case "build": {
         const tsconfigArg = args[0] ?? "tsconfig.json";
-        if (!isSafePathArg(tsconfigArg)) {
-            console.error(`[rapidreact] Invalid tsconfig path: "${tsconfigArg}"`);
-            process.exit(1);
-        }
+        validatePathArgOrExit(tsconfigArg, "tsconfig path");
         const clientTsconfig = "tsconfig.client.json";
         const hasClientTsconfig = fs.existsSync(path.join(process.cwd(), clientTsconfig));
         console.log("[rapidreact] Building for production...");
@@ -130,29 +140,20 @@ export function run(): void {
         const steps: Array<[string, string[]]> = [["tsc", ["-p", tsconfigArg]]];
         if (hasClientTsconfig) steps.push(["tsc", ["-p", clientTsconfig]]);
         steps.push(["vite", ["build"]]);
-        runSequential(steps).catch((err) => {
-            console.error(`[rapidreact] Build failed: ${err.message}`);
-            process.exit(1);
-        });
+        runStepsOrExit(steps, "Build");
         break;
     }
 
     case "export": {
         const exportEntry = args[0] ?? findExportEntry();
-        if (!isSafePathArg(exportEntry)) {
-            console.error(`[rapidreact] Invalid export entry path: "${exportEntry}"`);
-            process.exit(1);
-        }
+        validatePathArgOrExit(exportEntry, "export entry path");
         console.log("[rapidreact] Exporting static site...");
         console.log("  Client: vite build");
         console.log(`  Export: tsx ${exportEntry}`);
-        runSequential([
+        runStepsOrExit([
             ["vite", ["build"]],
             ["tsx", [exportEntry], { NODE_ENV: "production" }],
-        ]).catch((err) => {
-            console.error(`[rapidreact] Export failed: ${err.message}`);
-            process.exit(1);
-        });
+        ], "Export");
         break;
     }
 

@@ -157,6 +157,54 @@ describe("exportStaticSite against a real server", () => {
         expect(result.errors).toEqual([]);
     });
 
+    it("Refuses to write outside outDir when a route value attempts path traversal, and " +
+        "records it as an error instead of throwing out of exportStaticSite.", async () => {
+        const result = await exportStaticSite({
+            port: server.port,
+            appDir: "test/fixtures/does-not-exist",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+            // Normalized by fetch's own URL parsing into a real, 200-returning request
+            // (/app/pets) before it ever reaches the server — but the raw, unnormalized
+            // string is still what gets used to build the output file path.
+            paths: ["/../app/pets"],
+        });
+
+        expect(result.pages).toEqual([]);
+        expect(result.errors).toEqual([
+            { path: "/../app/pets", error: expect.stringContaining("Refusing to write outside outDir") },
+        ]);
+        expect(fs.existsSync(path.join(path.dirname(tmpDir), "app", "pets", "index.html"))).toBe(false);
+    });
+
+    it("Removes stale output from a prior export run (e.g. a page later excluded).", async () => {
+        await exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+        });
+        expect(fs.existsSync(path.join(tmpDir, "pets", "index.html"))).toBe(true);
+
+        await exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+            exclude: ["/pets"],
+        });
+        expect(fs.existsSync(path.join(tmpDir, "pets", "index.html"))).toBe(false);
+        // Everything else from the first run is still present — this isn't a blanket wipe of
+        // unrelated state, just a fresh reflection of what the current crawl actually produced.
+        expect(fs.existsSync(path.join(tmpDir, "index.html"))).toBe(true);
+    });
+
     it("Honors an explicit host and a custom concurrency value.", async () => {
         const result = await exportStaticSite({
             port: server.port,
@@ -218,21 +266,91 @@ describe("exportStaticSite edge cases", () => {
 
     it("Uses the documented default appDir/host/routePrefix/outDir/assetsDir when omitted, " +
         "without touching the real repo's build output.", async () => {
+        // exportStaticSite now empties outDir up front, so relying on the real default
+        // ("dist/export") without redirecting cwd would delete this repo's actual build
+        // output. path.resolve()/path.join(process.cwd(), ...) respect a mocked process.cwd(),
+        // so this alone makes the outDir-related absolute-path operations resolve safely
+        // under tmpDir instead of the real repo.
+        const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+        // assetsDir's default ("dist/public") is passed to fs.existsSync as a bare relative
+        // string, which Node's native fs bindings resolve against the real OS cwd — unlike
+        // path.resolve, that does NOT respect the process.cwd() mock above. Force it absent
+        // so this test can never find or copy the real repo's build output either.
         const realExistsSync = fs.existsSync.bind(fs);
         const existsSpy = vi.spyOn(fs, "existsSync").mockImplementation((p: fs.PathLike) => {
-            // Guard: the default assetsDir ("dist/public") may genuinely exist in this repo
-            // checkout after a real build — force it absent so this test never copies into
-            // the real default outDir ("dist/export").
             if (p === "dist/public") return false;
             return realExistsSync(p);
         });
         try {
             const result = await exportStaticSite({ port: 1 }); // closed port; everything else default
-            expect(result.pages).toEqual([]); // default appDir "app" does not exist at repo root
+            expect(result.pages).toEqual([]); // default appDir "app" does not exist under the fake cwd
             expect(result.errors).toEqual([{ path: "/__rapidrest_static_export_404_probe__", error: expect.any(String) }]);
+            // default outDir "dist/export" was actually created (under the mocked cwd), proving
+            // the default value was used, not just accepted as an unused default parameter.
+            expect(fs.existsSync(path.join(tmpDir, "dist", "export"))).toBe(true);
             expect(existsSpy).toHaveBeenCalledWith("dist/public");
         } finally {
             existsSpy.mockRestore();
+            cwdSpy.mockRestore();
         }
+    });
+
+    it("Records the 404 probe as an error, and does not write 404.html, when the probe " +
+        "doesn't return 404.", async () => {
+        const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("unexpected", { status: 500 }));
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                appDir: "test/fixtures/does-not-exist",
+                paths: [],
+                notFound: true,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+            });
+            expect(result.errors).toEqual([{ path: "/__rapidrest_static_export_404_probe__", status: 500 }]);
+            expect(fs.existsSync(path.join(tmpDir, "404.html"))).toBe(false);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+});
+
+describe("exportStaticSite outDir safety guard", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-outdir-guard-"));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("Refuses to empty outDir when it resolves to the current working directory.", async () => {
+        const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tmpDir);
+        try {
+            await expect(exportStaticSite({ port: 1, outDir: ".", notFound: false }))
+                .rejects.toThrow(/Refusing to empty outDir/);
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it("Refuses to empty outDir when it is an ancestor of the current working directory.", async () => {
+        const nested = path.join(tmpDir, "nested");
+        fs.mkdirSync(nested, { recursive: true });
+        const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(nested);
+        try {
+            await expect(exportStaticSite({ port: 1, outDir: tmpDir, notFound: false }))
+                .rejects.toThrow(/Refusing to empty outDir/);
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it("Refuses to empty outDir when it resolves to the filesystem root.", async () => {
+        const root = path.parse(process.cwd()).root;
+        await expect(exportStaticSite({ port: 1, outDir: root, notFound: false }))
+            .rejects.toThrow(/Refusing to empty outDir/);
     });
 });

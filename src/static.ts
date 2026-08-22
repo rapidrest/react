@@ -48,8 +48,7 @@ export interface StaticExportResult {
  */
 function fileToRoute(relPath: string): string {
     const noExt = relPath.replace(/\.tsx$/, "");
-    const noIndex = noExt === "index" ? "" : noExt.replace(/(^|\/)index$/, "");
-    return "/" + noIndex;
+    return "/" + noExt.replace(/(^|\/)index$/, "");
 }
 
 /**
@@ -67,11 +66,18 @@ export function discoverRoutes(appDir: string): string[] {
     return [...new Set(scanAppDirPages(appDir).map(fileToRoute))];
 }
 
-/** Writes `html` to the output file for `route`, creating parent directories as needed. */
+/**
+ * Writes `html` to the output file for `route`, creating parent directories as needed.
+ * Refuses to write outside `outDir` — `route` may originate from caller-supplied
+ * `StaticExportOptions.paths`, so it's untrusted the same way a URL segment is, and gets the
+ * same containment check `ReactRoute.resolveAppFile()`/`tryServeAsset()` apply to theirs.
+ */
 function writeRouteHtml(outDir: string, route: string, html: string): string {
-    const outFile = route === "/"
-        ? path.join(outDir, "index.html")
-        : path.join(outDir, route, "index.html");
+    const root = path.resolve(outDir);
+    const outFile = path.resolve(path.join(outDir, route, "index.html"));
+    if (!outFile.startsWith(root + path.sep)) {
+        throw new Error(`[rapidreact] Refusing to write outside outDir for route "${route}"`);
+    }
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, html);
     return outFile;
@@ -149,6 +155,25 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
     const baseUrl = `http://${host}:${port}`;
     const result: StaticExportResult = { pages: [], errors: [] };
 
+    // Start from a clean outDir so a page removed from appDir or newly added to `exclude`
+    // doesn't leave stale — possibly personalized — HTML behind from a prior export run.
+    // Refuse if outDir resolves to cwd, an ancestor of it, or the filesystem root — an
+    // `rm -rf` on a misconfigured outDir (e.g. "." or "/") must never be silently possible.
+    const resolvedOutDir = path.resolve(outDir);
+    const cwd = process.cwd();
+    if (
+        resolvedOutDir === cwd ||
+        cwd.startsWith(resolvedOutDir + path.sep) ||
+        resolvedOutDir === path.parse(resolvedOutDir).root
+    ) {
+        throw new Error(
+            `[rapidreact] Refusing to empty outDir "${outDir}" — it resolves to the current working ` +
+            `directory, one of its ancestors, or the filesystem root. Use a dedicated subdirectory instead.`
+        );
+    }
+    fs.rmSync(resolvedOutDir, { recursive: true, force: true });
+    fs.mkdirSync(resolvedOutDir, { recursive: true });
+
     await runWithConcurrency(routes, concurrency, async (route) => {
         try {
             const res = await fetch(baseUrl + routePrefix + route);
@@ -168,15 +193,17 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
         try {
             const res = await fetch(baseUrl + routePrefix + NOT_FOUND_PROBE);
             const html = await res.text();
-            fs.mkdirSync(outDir, { recursive: true });
-            fs.writeFileSync(path.join(outDir, "404.html"), html);
+            if (res.status !== 404) {
+                result.errors.push({ path: NOT_FOUND_PROBE, status: res.status });
+            } else {
+                fs.writeFileSync(path.join(outDir, "404.html"), html);
+            }
         } catch (err) {
             result.errors.push({ path: NOT_FOUND_PROBE, error: err instanceof Error ? err.message : String(err) });
         }
     }
 
     if (fs.existsSync(assetsDir)) {
-        fs.mkdirSync(outDir, { recursive: true });
         fs.cpSync(assetsDir, outDir, { recursive: true });
     }
 

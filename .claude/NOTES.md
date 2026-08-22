@@ -22,3 +22,16 @@ Keep entries terse — this is a reference, not a transcript.
 
 - **Commit discipline.** Don't `git commit` unless explicitly asked, even after a full
   review-and-fix cycle with passing tests. Leave changes staged/unstaged and say so.
+
+## Session Log
+
+- **2026-08-22** — `static.ts`'s `writeRouteHtml()` gained a path-containment check (refuses to
+  write outside `outDir`). Initially reported as a "security" finding in a code review, but it
+  doesn't meet the externally-exploitable bar above: the `route` value it checks only ever comes
+  from `discoverRoutes()` (real filenames under the developer's own `appDir`) or `options.paths`
+  (a value the developer writes directly into their own `src/export.ts`) — never from an HTTP/WS
+  request. `exportStaticSite`/`runStaticExport` only run from a one-shot local/CI script, never a
+  live listener. Decision: **kept anyway**, but recategorized — it's a fail-fast/DX guard against
+  a self-inflicted typo (e.g. `paths: ["../admin"]`), not a vulnerability fix. When defending or
+  reporting a finding like this in future reviews, say so explicitly up front (containment/DX
+  guard vs. externally-exploitable) rather than reaching for security framing by default.
