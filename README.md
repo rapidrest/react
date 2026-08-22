@@ -167,6 +167,31 @@ Point the route at the generated manifest via nconf (`react:manifestPath`, e.g.
 `dist/public/.vite/manifest.json`) and it will inject the right `<script>`/`<link>` tags and
 serve the built assets automatically.
 
+### Multiple Apps (optional)
+
+A project can run more than one React app side by side — e.g. a public `www` app at `/` and an
+`admin` app at `/admin` — each its own `ReactRoute` subclass with its own `appDir`:
+
+```ts
+@Route("/")
+export class WwwRoute extends ReactRoute {
+    protected readonly appDir: string = "apps/www";
+}
+
+@Route("/admin")
+export class AdminRoute extends ReactRoute {
+    protected readonly appDir: string = "apps/admin";
+}
+```
+
+`createViteConfig()` accepts `appDir` as an array to build every app's hydration entries into one
+manifest:
+
+```ts
+// vite.config.ts
+export default createViteConfig({ appDir: ["apps/www", "apps/admin"] });
+```
+
 ## Static Export
 
 Every page under `app/` is already file-enumerable — there are no dynamic/parameterized routes
@@ -202,6 +227,24 @@ if (result.errors.length > 0) {
     process.exit(1);
 }
 console.log(`[export] Wrote ${result.pages.length} page(s) to dist/export.`);
+```
+
+For a [multi-app project](#multiple-apps-optional), pass `apps` instead of `appDir`/`routePrefix`
+— each app's own `routePrefix` also becomes its output subdirectory, so pages from different apps
+can't collide in `dist/export`:
+
+```ts
+const result = await runStaticExport(
+    { config, basePath: ".", logger, objectFactory },
+    {
+        outDir: "dist/export",
+        apps: [
+            { appDir: "apps/www", routePrefix: "" },
+            { appDir: "apps/admin", routePrefix: "/admin" },
+        ],
+    }
+);
+// -> dist/export/index.html, dist/export/admin/index.html, ...
 ```
 
 Then run:

@@ -10,29 +10,57 @@ import { scanAppDirPages } from "./appDirScan.js";
 /** A guaranteed-unmatched path used to probe the app's real `_404` page during export. */
 const NOT_FOUND_PROBE = "/__rapidrest_static_export_404_probe__";
 
+/** One app's crawl configuration, for exporting a multi-app project in a single call. */
+export interface StaticExportApp {
+    /** Filesystem path to this app's directory, relative to cwd. */
+    appDir: string;
+    /** URL prefix this app's React route is mounted at. In the multi-app `apps` form, also
+     * becomes this app's output subdirectory prefix, so routes from different apps can't
+     * collide in `outDir` and the exported site preserves each app's mount-relative structure
+     * (e.g. an admin app mounted at `/admin` writes to `<outDir>/admin/...`). Use `""` — not
+     * `"/"` — for an app mounted at the site root; `routePrefix` is concatenated directly with
+     * each route (which already starts with `/`), so a `"/"` prefix produces a double slash.
+     * Default `""`. */
+    routePrefix?: string;
+    /** Extra prefix-free route paths to crawl for this app, beyond what `appDir` discovers. */
+    paths?: string[];
+    /** Route paths to skip for this app (e.g. auth-gated/personalized pages that shouldn't be
+     * baked into a public static export). Matched against the prefix-free route path. */
+    exclude?: (string | RegExp)[];
+}
+
 export interface StaticExportOptions {
     /** Port of the already-running server to crawl. */
     port: number;
     /** Host of the already-running server to crawl. Default `"127.0.0.1"`. */
     host?: string;
-    /** Filesystem path to the app directory, relative to cwd. Default `"app"`. */
+    /** Filesystem path to the app directory, relative to cwd. Ignored when `apps` is given.
+     * Unlike `StaticExportApp.routePrefix`, this single-app `routePrefix` is never part of the
+     * output path — the export always serves this app from the site root. Default `"app"`. */
     appDir?: string;
     /** URL prefix the React route is mounted at (e.g. `"/app"`). Prepended only to the
-     * fetch URL — discovered/explicit route paths are always prefix-free. Default `""`. */
+     * fetch URL — discovered/explicit route paths are always prefix-free. Ignored when `apps`
+     * is given. Default `""`. */
     routePrefix?: string;
+    /** Extra prefix-free route paths to crawl, beyond what `appDir` convention discovers.
+     * Ignored when `apps` is given. */
+    paths?: string[];
+    /** Route paths to skip. Ignored when `apps` is given. */
+    exclude?: (string | RegExp)[];
+    /** Crawl multiple apps in one export — each with its own `appDir`/`routePrefix`/`paths`/
+     * `exclude` — instead of the single-app `appDir`/`routePrefix`/`paths`/`exclude` fields
+     * above. `outDir` is still cleaned exactly once regardless of app count. */
+    apps?: StaticExportApp[];
     /** Directory to write the exported static site to. Default `"dist/export"`. */
     outDir?: string;
     /** Directory of built hydration/static assets, copied verbatim into `outDir`.
      * Default `"dist/public"`. */
     assetsDir?: string;
-    /** Extra prefix-free route paths to crawl, beyond what `appDir` convention discovers. */
-    paths?: string[];
-    /** Route paths to skip (e.g. auth-gated/personalized pages that shouldn't be baked
-     * into a public static export). Matched against the prefix-free route path. */
-    exclude?: (string | RegExp)[];
-    /** Probe and write the app's real `_404` page to `<outDir>/404.html`. Default `true`. */
+    /** Probe and write the app's real `_404` page to `<outDir>/404.html`. In the multi-app
+     * `apps` form, the first app in the list is authoritative for this site-wide fallback.
+     * Default `true`. */
     notFound?: boolean;
-    /** Maximum number of pages to crawl concurrently. Default `5`. */
+    /** Maximum number of pages to crawl concurrently, across all apps. Default `5`. */
     concurrency?: number;
 }
 
@@ -67,14 +95,15 @@ export function discoverRoutes(appDir: string): string[] {
 }
 
 /**
- * Writes `html` to the output file for `route`, creating parent directories as needed.
- * Refuses to write outside `outDir` — `route` may originate from caller-supplied
- * `StaticExportOptions.paths`, so it's untrusted the same way a URL segment is, and gets the
- * same containment check `ReactRoute.resolveAppFile()`/`tryServeAsset()` apply to theirs.
+ * Writes `html` to the output file for `outputPrefix + route`, creating parent directories as
+ * needed. Refuses to write outside `outDir` — `route` may originate from caller-supplied
+ * `paths`, so it's untrusted the same way a URL segment is, and gets the same containment check
+ * `ReactRoute.resolveAppFile()`/`tryServeAsset()` apply to theirs. The check runs against the
+ * final resolved path, so it also covers a malformed `outputPrefix`, not just `route`.
  */
-function writeRouteHtml(outDir: string, route: string, html: string): string {
+function writeRouteHtml(outDir: string, outputPrefix: string, route: string, html: string): string {
     const root = path.resolve(outDir);
-    const outFile = path.resolve(path.join(outDir, route, "index.html"));
+    const outFile = path.resolve(path.join(outDir, outputPrefix, route, "index.html"));
     if (!outFile.startsWith(root + path.sep)) {
         throw new Error(`[rapidreact] Refusing to write outside outDir for route "${route}"`);
     }
@@ -132,25 +161,59 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, task: (ite
  * }
  * console.log(`[export] Wrote ${result.pages.length} page(s) to dist/export.`);
  * ```
+ *
+ * @example
+ * ```ts
+ * // Multi-app project — writes www's pages to dist/export/, admin's to dist/export/admin/
+ * await exportStaticSite({
+ *     port,
+ *     apps: [
+ *         { appDir: "apps/www", routePrefix: "" },
+ *         { appDir: "apps/admin", routePrefix: "/admin" },
+ *     ],
+ * });
+ * ```
  */
 export async function exportStaticSite(options: StaticExportOptions): Promise<StaticExportResult> {
     const {
         port,
         host = "127.0.0.1",
-        appDir = "app",
-        routePrefix = "",
         outDir = "dist/export",
         assetsDir = "dist/public",
-        paths = [],
-        exclude = [],
         notFound = true,
         concurrency = 5,
     } = options;
 
-    const isExcluded = (route: string) =>
-        exclude.some((pattern) => (typeof pattern === "string" ? pattern === route : pattern.test(route)));
+    // The multi-app form is opted into explicitly — even a single-entry `apps` array applies
+    // output-prefixing, since the caller chose the multi-app-aware shape on purpose. Otherwise
+    // synthesize one app from the flat single-app fields, matching today's behavior exactly.
+    const isMultiAppForm = options.apps !== undefined;
+    const apps: StaticExportApp[] = isMultiAppForm
+        ? options.apps!
+        : [{
+              appDir: options.appDir ?? "app",
+              routePrefix: options.routePrefix ?? "",
+              paths: options.paths ?? [],
+              exclude: options.exclude ?? [],
+          }];
 
-    const routes = [...new Set([...discoverRoutes(appDir), ...paths])].filter((route) => !isExcluded(route));
+    interface CrawlTask {
+        route: string;
+        fetchPrefix: string;
+        outputPrefix: string;
+    }
+    const tasks: CrawlTask[] = [];
+    for (const app of apps) {
+        const fetchPrefix = app.routePrefix ?? "";
+        const appExclude = app.exclude ?? [];
+        const isExcluded = (route: string) =>
+            appExclude.some((pattern) => (typeof pattern === "string" ? pattern === route : pattern.test(route)));
+        const routes = [...new Set([...discoverRoutes(app.appDir), ...(app.paths ?? [])])]
+            .filter((route) => !isExcluded(route));
+        for (const route of routes) {
+            tasks.push({ route, fetchPrefix, outputPrefix: isMultiAppForm ? fetchPrefix : "" });
+        }
+    }
 
     const baseUrl = `http://${host}:${port}`;
     const result: StaticExportResult = { pages: [], errors: [] };
@@ -174,24 +237,28 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
     fs.rmSync(resolvedOutDir, { recursive: true, force: true });
     fs.mkdirSync(resolvedOutDir, { recursive: true });
 
-    await runWithConcurrency(routes, concurrency, async (route) => {
+    await runWithConcurrency(tasks, concurrency, async (task) => {
+        const reportedPath = task.outputPrefix + task.route;
         try {
-            const res = await fetch(baseUrl + routePrefix + route);
+            const res = await fetch(baseUrl + task.fetchPrefix + task.route);
             const html = await res.text();
             if (res.status !== 200) {
-                result.errors.push({ path: route, status: res.status });
+                result.errors.push({ path: reportedPath, status: res.status });
                 return;
             }
-            const outFile = writeRouteHtml(outDir, route, html);
-            result.pages.push({ path: route, outFile, status: res.status });
+            const outFile = writeRouteHtml(outDir, task.outputPrefix, task.route, html);
+            result.pages.push({ path: reportedPath, outFile, status: res.status });
         } catch (err) {
-            result.errors.push({ path: route, error: err instanceof Error ? err.message : String(err) });
+            result.errors.push({ path: reportedPath, error: err instanceof Error ? err.message : String(err) });
         }
     });
 
     if (notFound) {
+        // The first app is authoritative for the site-wide 404 fallback — matches how a static
+        // host only ever looks for one root-level 404.html regardless of app count.
+        const primaryPrefix = apps[0]?.routePrefix ?? "";
         try {
-            const res = await fetch(baseUrl + routePrefix + NOT_FOUND_PROBE);
+            const res = await fetch(baseUrl + primaryPrefix + NOT_FOUND_PROBE);
             const html = await res.text();
             if (res.status !== 404) {
                 result.errors.push({ path: NOT_FOUND_PROBE, status: res.status });

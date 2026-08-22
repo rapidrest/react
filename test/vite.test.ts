@@ -34,6 +34,27 @@ describe("createViteConfig", () => {
         const { config } = await getHydrationPlugin({ outDir: "custom/out" });
         expect(config.build.outDir).toBe("custom/out");
     });
+
+    it("Accepts appDir as an array and merges every app's entries into one build.", async () => {
+        const { plugin } = await getHydrationPlugin({
+            appDir: ["test/fixtures/vite-app", "test/fixtures/vite-app-nested"],
+        });
+        const result = plugin.options({});
+        expect(result).not.toBeNull();
+        const keys = Object.keys(result.input).sort();
+        expect(keys).toEqual([
+            "test/fixtures/vite-app-nested/auth/login/index.tsx",
+            "test/fixtures/vite-app/page1.tsx",
+            "test/fixtures/vite-app/sub/index.tsx",
+        ]);
+    });
+
+    it("A single-element appDir array behaves the same as a bare string.", async () => {
+        const { plugin } = await getHydrationPlugin({ appDir: ["test/fixtures/vite-app"] });
+        const result = plugin.options({});
+        const keys = Object.keys(result.input).sort();
+        expect(keys).toEqual(["test/fixtures/vite-app/page1.tsx", "test/fixtures/vite-app/sub/index.tsx"]);
+    });
 });
 
 describe("rapidrest-hydration plugin", () => {
@@ -131,6 +152,21 @@ describe("rapidrest-hydration plugin", () => {
             expect(code).toContain(`import Component from ${JSON.stringify(expectedAbsPath)};`);
             expect(code).toContain(`import { hydrateRoute } from "@rapidrest/react/client";`);
             expect(code).toContain("hydrateRoute(Component);");
+        });
+
+        it("Loads entries from every app in a merged multi-app build, from one plugin instance.", async () => {
+            const { plugin } = await getHydrationPlugin({
+                appDir: ["test/fixtures/vite-app", "test/fixtures/vite-app-nested"],
+            });
+            const { input } = plugin.options({});
+
+            const key1 = "test/fixtures/vite-app/page1.tsx";
+            const code1 = plugin.load(input[key1]);
+            expect(code1).toContain(JSON.stringify(path.resolve(key1).replace(/\\/g, "/")));
+
+            const key2 = "test/fixtures/vite-app-nested/auth/login/index.tsx";
+            const code2 = plugin.load(input[key2]);
+            expect(code2).toContain(JSON.stringify(path.resolve(key2).replace(/\\/g, "/")));
         });
 
         it("Ignores a non-virtual id.", async () => {

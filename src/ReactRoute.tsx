@@ -81,8 +81,8 @@ export class ReactRoute {
     protected cache?: RedisStore;
     /* v8 ignore stop */
 
-    /** Filesystem path to the app directory, relative to cwd. Default is `apps/app`. */
-    protected readonly appDir: string = "apps/app";
+    /** Filesystem path to the app directory, relative to cwd. Default is `app`. */
+    protected readonly appDir: string = "app";
 
     /** Cache TTL in seconds. Caching is only active in production (`NODE_ENV=production`). */
     protected readonly cacheTTL: number = 60;

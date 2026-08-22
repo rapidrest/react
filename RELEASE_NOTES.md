@@ -2,24 +2,16 @@
 
 ## Unreleased
 
-* Added static site export: `discoverRoutes()`, `exportStaticSite()` and `runStaticExport()`
-  (new `src/static.ts`, exported from the package root) crawl a running server and write a
-  plain HTML/CSS/JS static site to disk, deployable to any static host with no server required
-  at request time
-* Added the `rapidreact export` CLI command, which builds the client bundle and runs a
-  downstream project's `src/export.ts`/`src/export.tsx` entry (see the README's Static Export
-  section) with `tsx` under `NODE_ENV=production`
-* `spawnProcess()`/`runSequential()` now accept an optional per-step environment variable map
-  (additive, backward-compatible) — used by `rapidreact export` to set `NODE_ENV=production`
-* Extracted the `app/` page-file discovery convention out of `vite.ts` into a new shared
-  `src/appDirScan.ts` (`scanAppDirPages()`), so it's defined in exactly one place for both the
-  Vite hydration-entry scan and the new static-export route discovery
-* Updated dependencies to their latest stable, compatible versions, including `@swc/core`,
+* Added static site export
+* Added the `rapidreact export` CLI command
+* Added multi-app support
+* Running `rapidreact export` now empties `outDir` before writing
+* The `_404`/`404.html` probe now checks for an actual 404 response before writing it
+* `ReactRoute`'s default `appDir` is now `"app"` (instead of `"apps/app"`)
+* Updated all project dependencies to their latest stable, compatible versions, including `@swc/core`,
   `@types/node`, `@typescript-eslint/eslint-plugin`/`parser`, `@vitejs/plugin-react`, `eslint`,
   `eslint-plugin-jsdoc`, `tsx`, `unplugin-swc`, `vite` and `vitest`
-* `typescript` was deliberately held at the latest `6.x` release rather than `7.x`, since
-  `@typescript-eslint` does not yet support TypeScript 7
-* Rewrote `README.md` with a full feature overview, quick start guide and CLI usage
+* Various other bug fixes and improvements
 
 ## v0.11.0
 

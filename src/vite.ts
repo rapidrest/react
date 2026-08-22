@@ -10,8 +10,8 @@ import { scanAppDirPages } from "./appDirScan.js";
  */
 export interface RapidRestViteOptions {
     /**
-     * Directory containing front-end React page components, relative to the project root.
-     * Convention:
+     * Directory (or directories, for a multi-app project — one per `ReactRoute` subclass)
+     * containing front-end React page components, relative to the project root. Convention:
      * - Top-level `.tsx` files (excluding `_*` prefixed) become hydration entry points.
      * - `index.tsx` inside a non-`_*` subdirectory also becomes an entry point.
      * - Files prefixed with `_` (e.g. `_layout.tsx`, `_styles/`) are excluded.
@@ -19,10 +19,12 @@ export interface RapidRestViteOptions {
      *
      * The manifest key for each entry is its path relative to the project root
      * (e.g. `"app/pets.tsx"`), which is what ReactRoute derives from the resolved page file.
+     * Multiple `appDir`s are merged into one build/manifest — entry keys are already prefixed
+     * by their own `appDir`, so there's no collision risk between apps.
      *
      * Default: `"app"`
      */
-    appDir?: string;
+    appDir?: string | string[];
 
     /**
      * Output directory for production builds. RapidREST auto-serves `<basePath>/public/`,
@@ -55,20 +57,28 @@ function findPageEntries(appDir: string): Record<string, string> {
 }
 
 /**
- * Vite plugin that auto-discovers page entry points from `appDir` and generates
+ * Vite plugin that auto-discovers page entry points from one or more `appDir`s and generates
  * virtual hydration entry modules for each — no hand-written `*.entry.tsx` files needed.
  *
  * Each virtual module (prefixed `\0`) calls `hydrateRoute(DefaultExport)`.
  * Vite treats `\0`-prefixed IDs as virtual (no real facadeModuleId), so it falls back
  * to `chunk.name` — the rollup input key — as the manifest key. This makes
  * `clientEntryKey = "app/pets.tsx"` resolve correctly in ReactRoute.
+ *
+ * A single plugin instance handles every `appDir` — `resolveId()`/`load()` decode the full
+ * source path straight out of the virtual id itself, with no dependency on which `appDir` it
+ * came from, so merging multiple apps only changes what `options()` discovers, not how the
+ * resulting virtual modules resolve or load.
  */
-function rapidRestHydrationPlugin(appDir: string) {
+function rapidRestHydrationPlugin(appDirs: string[]) {
     return {
         name: "rapidrest-hydration",
 
         options(opts: any) {
-            const entries = findPageEntries(appDir);
+            const entries: Record<string, string> = {};
+            for (const appDir of appDirs) {
+                Object.assign(entries, findPageEntries(appDir));
+            }
             if (Object.keys(entries).length === 0) return null;
 
             let existing: Record<string, string> = {};
@@ -116,6 +126,10 @@ function rapidRestHydrationPlugin(appDir: string) {
  * export default createViteConfig({ appDir: "app" });
  *
  * @example
+ * // Multiple apps in one project — one build/manifest covering both
+ * export default createViteConfig({ appDir: ["apps/www", "apps/admin"] });
+ *
+ * @example
  * // With Tailwind CSS
  * import tailwindcss from "@tailwindcss/vite";
  * export default createViteConfig({ appDir: "app", plugins: [tailwindcss()] });
@@ -125,9 +139,10 @@ export async function createViteConfig(options: RapidRestViteOptions = {}) {
     const { default: react } = await import("@vitejs/plugin-react");
 
     const { appDir = "app", outDir = "dist/public", plugins: userPlugins = [] } = options;
+    const appDirs = Array.isArray(appDir) ? appDir : [appDir];
 
     return defineConfig({
-        plugins: [react(), rapidRestHydrationPlugin(appDir), ...userPlugins],
+        plugins: [react(), rapidRestHydrationPlugin(appDirs), ...userPlugins],
         build: {
             outDir,
             manifest: true,

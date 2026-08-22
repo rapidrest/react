@@ -354,3 +354,181 @@ describe("exportStaticSite outDir safety guard", () => {
             .rejects.toThrow(/Refusing to empty outDir/);
     });
 });
+
+describe("exportStaticSite multi-app (apps option)", () => {
+    let tmpDir: string;
+
+    // Mocks the crawled server: "/admin/..." routes get "Admin" content, the 404 probe (matched
+    // by its literal path, checked first so it isn't shadowed by the "/admin" substring check)
+    // returns a real 404, and everything else (the "/" app) gets "WWW" content.
+    function mockMultiAppFetch() {
+        return vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+            const u = String(url);
+            if (u.includes("__rapidrest_static_export_404_probe__")) {
+                return new Response("<html>NotFound</html>", { status: 404 });
+            }
+            if (u.includes("/admin/")) {
+                return new Response("<html>Admin</html>", { status: 200 });
+            }
+            return new Response("<html>WWW</html>", { status: 200 });
+        });
+    }
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-static-export-multiapp-"));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("Crawls every app, writing each one's pages under its own routePrefix subdirectory.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                apps: [
+                    { appDir: "test/fixtures/vite-app", routePrefix: "" },
+                    { appDir: "test/fixtures/vite-app-nested", routePrefix: "/admin" },
+                ],
+            });
+
+            expect(result.errors).toEqual([]);
+            expect(result.pages.map((p) => p.path).sort()).toEqual(["/admin/auth/login", "/page1", "/sub"]);
+
+            expect(fs.readFileSync(path.join(tmpDir, "page1", "index.html"), "utf-8")).toContain("WWW");
+            expect(fs.readFileSync(path.join(tmpDir, "sub", "index.html"), "utf-8")).toContain("WWW");
+            expect(fs.readFileSync(path.join(tmpDir, "admin", "auth", "login", "index.html"), "utf-8"))
+                .toContain("Admin");
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Fetches each app's routes against its own routePrefix.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            await exportStaticSite({
+                port: 1,
+                host: "127.0.0.1",
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                apps: [
+                    { appDir: "test/fixtures/vite-app", routePrefix: "" },
+                    { appDir: "test/fixtures/vite-app-nested", routePrefix: "/admin" },
+                ],
+            });
+
+            const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+            expect(urls).toContain("http://127.0.0.1:1/page1");
+            expect(urls).toContain("http://127.0.0.1:1/admin/auth/login");
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Probes the 404 fallback using the first app's routePrefix.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: true,
+                apps: [
+                    { appDir: "test/fixtures/does-not-exist", routePrefix: "/admin" },
+                    { appDir: "test/fixtures/does-not-exist", routePrefix: "" },
+                ],
+            });
+
+            const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+            expect(urls).toContain("http://127.0.0.1:1/admin/__rapidrest_static_export_404_probe__");
+            expect(fs.readFileSync(path.join(tmpDir, "404.html"), "utf-8")).toContain("NotFound");
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Applies output-prefixing even for a single-entry apps array (opt-in by shape, not length).", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                apps: [{ appDir: "test/fixtures/vite-app", routePrefix: "/admin" }],
+            });
+
+            expect(result.pages.map((p) => p.path).sort()).toEqual(["/admin/page1", "/admin/sub"]);
+            expect(fs.existsSync(path.join(tmpDir, "admin", "page1", "index.html"))).toBe(true);
+            // Confirms this differs from the single-app shorthand, which never prefixes output.
+            expect(fs.existsSync(path.join(tmpDir, "page1", "index.html"))).toBe(false);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Defaults an app's routePrefix to \"\" when omitted from an apps entry.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: true,
+                apps: [{ appDir: "test/fixtures/vite-app" }], // routePrefix omitted entirely
+            });
+
+            expect(result.pages.map((p) => p.path).sort()).toEqual(["/page1", "/sub"]);
+            const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+            expect(urls).toContain("http://127.0.0.1:1/__rapidrest_static_export_404_probe__");
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Defaults the 404 probe's prefix to \"\" when apps is empty.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: true,
+                apps: [],
+            });
+
+            expect(result.pages).toEqual([]);
+            const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+            expect(urls).toEqual(["http://127.0.0.1:1/__rapidrest_static_export_404_probe__"]);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Applies each app's own paths and exclude independently.", async () => {
+        const fetchSpy = mockMultiAppFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                apps: [
+                    { appDir: "test/fixtures/vite-app", routePrefix: "", exclude: ["/page1"], paths: ["/extra"] },
+                    { appDir: "test/fixtures/vite-app-nested", routePrefix: "/admin" },
+                ],
+            });
+
+            const paths = result.pages.map((p) => p.path).sort();
+            expect(paths).toEqual(["/admin/auth/login", "/extra", "/sub"]);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+});

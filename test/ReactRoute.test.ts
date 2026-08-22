@@ -53,6 +53,11 @@ function fakeResponse(): { res: HttpResponse; calls: { status?: number; headers:
 
 // Exposes protected methods for direct unit testing.
 class TestableReactRoute extends ReactRoute {
+    // Matches every other route fixture in this suite (test/server/AppRouter.ts, etc.) — needed
+    // so resolveClientUrls()'s `this.appDir`-anchored manifest lookup has a real, unambiguous
+    // value to anchor against, rather than silently relying on the base class's own default.
+    protected readonly appDir = "test/app";
+
     public callResolveAppFile(appDir: string, segment: string): Promise<string | null> {
         return this.resolveAppFile(appDir, segment);
     }
@@ -308,6 +313,22 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
         const manifest = { [entryKey]: { file: "assets/index-abc123.js", css: ["assets/a.css", "assets/b.css"] } };
         const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
         expect(result.css).toEqual(["/assets/a.css", "/assets/b.css"]);
+    });
+
+    it("Falls back to matching the full relative path when appDir isn't a substring of it.", () => {
+        const route = new TestableReactRoute(); // appDir = "test/app"
+        const pagePath = path.resolve(process.cwd(), "test/fixtures/vite-app/page1.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = {
+            [`rapidrest-entry:${entryKey}`]: {
+                file: "assets/page1-xyz.js",
+                name: entryKey,
+                src: `rapidrest-entry:${entryKey}`,
+                isEntry: true,
+            },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/page1-xyz.js");
     });
 
     it("Throws when neither the direct key nor any entry's `name` field matches.", () => {
