@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v1.0.0
 
 * Added static site export
 * Added the `rapidreact export` CLI command
