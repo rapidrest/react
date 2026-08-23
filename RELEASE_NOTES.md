@@ -8,8 +8,8 @@
 * Running `rapidreact export` now empties `outDir` before writing
 * The `_404`/`404.html` probe now checks for an actual 404 response before writing it
 * `ReactRoute`'s default `appDir` is now `"app"` (instead of `"apps/app"`)
-* Updated all project dependencies to their latest stable, compatible versions, including `@swc/core`,
-  `@types/node`, `@typescript-eslint/eslint-plugin`/`parser`, `@vitejs/plugin-react`, `eslint`,
+* Updated all project dependencies to their latest stable, compatible versions, including `@rapidrest/core`, `@rapidrest/service-core`,
+  `@swc/core`, `@types/node`, `@typescript-eslint/eslint-plugin`/`parser`, `@vitejs/plugin-react`, `eslint`,
   `eslint-plugin-jsdoc`, `tsx`, `unplugin-swc`, `vite` and `vitest`
 * Various other bug fixes and improvements
 
