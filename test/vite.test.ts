@@ -125,6 +125,21 @@ describe("rapidrest-hydration plugin", () => {
             const result = plugin.options({ preserveSymlinks: true });
             expect(result.preserveSymlinks).toBe(true);
         });
+
+        it("Drops Vite's default index.html placeholder once configResolved has run, without " +
+            "dropping a same-named entry the caller supplied explicitly before that.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app/sub" });
+            const root = path.resolve("test/fixtures/vite-app/sub");
+            const defaultEntry = path.resolve(root, "index.html");
+
+            // Before configResolved() runs, nothing is recognized as the placeholder yet.
+            expect(plugin.options({ input: defaultEntry }).input[defaultEntry]).toBe(defaultEntry);
+
+            plugin.configResolved({ root });
+            const result = plugin.options({ input: defaultEntry });
+            expect(result.input[defaultEntry]).toBeUndefined();
+            expect(result.input["test/fixtures/vite-app/sub/index.tsx"]).toBeDefined();
+        });
     });
 
     describe("resolveId()", () => {

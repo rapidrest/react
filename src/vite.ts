@@ -71,8 +71,18 @@ function findPageEntries(appDir: string): Record<string, string> {
  * resulting virtual modules resolve or load.
  */
 function rapidRestHydrationPlugin(appDirs: string[]) {
+    // Vite (rolldown) pre-fills `opts.input` with this resolved (and, for this framework, always
+    // nonexistent) path whenever the project doesn't configure an explicit entry, before options()
+    // ever runs. Captured via configResolved() so options() can drop exactly that placeholder -
+    // everything else the caller (or another plugin) puts in `opts.input` is preserved verbatim.
+    let defaultHtmlEntry: string | undefined;
+
     return {
         name: "rapidrest-hydration",
+
+        configResolved(config: any) {
+            defaultHtmlEntry = path.resolve(config.root, "index.html");
+        },
 
         options(opts: any) {
             const entries: Record<string, string> = {};
@@ -81,13 +91,21 @@ function rapidRestHydrationPlugin(appDirs: string[]) {
             }
             if (Object.keys(entries).length === 0) return null;
 
+            const isDefaultPlaceholder = (f: string) => f === defaultHtmlEntry;
+
             let existing: Record<string, string> = {};
             if (typeof opts.input === "string") {
-                existing = { [opts.input]: opts.input };
+                if (!isDefaultPlaceholder(opts.input)) existing = { [opts.input]: opts.input };
             } else if (Array.isArray(opts.input)) {
-                existing = Object.fromEntries(opts.input.map((f: string) => [f, f]));
+                existing = Object.fromEntries(
+                    opts.input.filter((f: string) => !isDefaultPlaceholder(f)).map((f: string) => [f, f]),
+                );
             } else if (opts.input) {
-                existing = opts.input as Record<string, string>;
+                existing = Object.fromEntries(
+                    Object.entries(opts.input as Record<string, string>).filter(
+                        ([, f]) => !isDefaultPlaceholder(f),
+                    ),
+                );
             }
 
             return { ...opts, input: { ...existing, ...entries } };
