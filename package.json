@@ -20,7 +20,7 @@
         "test": "vitest run",
         "test:prod": "npm run lint && vitest run --coverage",
         "test:watch": "vitest",
-        "postversion": "git push && git push --tags"
+        "release": "tsx scripts/release.ts"
     },
     "peerDependencies": {
         "@rapidrest/core": "5.x",
