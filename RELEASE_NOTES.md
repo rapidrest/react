@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v1.0.2
 
 * Fixed an issue with resolving symlinks on Linux/macOS
 

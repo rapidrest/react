@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-31
+
+### Added
+- Added changelog and release script
+
+### Fixed
+- Fixed an issue with resolving symlinks on Linux/macOS
+- Fixed release notes
+
 ## [1.0.1] - 2026-08-22
 
 ### Fixed
@@ -147,7 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/rapidrest/react/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/rapidrest/react/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/rapidrest/react/compare/v0.11.0...v1.0.0
 [0.11.0]: https://github.com/rapidrest/react/compare/v0.10.1...v0.11.0
