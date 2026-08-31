@@ -187,9 +187,28 @@ Examples:
     }
 }
 
+/**
+ * Resolves `p` to its real (symlink-free) path, or `null` if it doesn't exist / can't be
+ * resolved. `process.argv[1]` is left exactly as invoked by the shell — unlike `import.meta.url`
+ * for the entry module, which Node resolves through symlinks by default (i.e. without
+ * `--preserve-symlinks-main`). A package-manager `.bin` entry (e.g. `node_modules/.bin/rapidreact`)
+ * is a real symlink on Linux/macOS, so comparing the raw argv path against the resolved module
+ * URL always mismatches there, even though it's a byte-for-byte identical invocation to running
+ * the resolved file directly. Windows package managers instead generate a `.cmd`/shim file rather
+ * than a symlink, so `argv[1]` is already the real path there — which is why this only ever broke
+ * cross-platform, not on any single OS in isolation.
+ */
+function resolveRealPath(p: string): string | null {
+    try {
+        return fs.realpathSync(p);
+    } catch {
+        return null;
+    }
+}
+
 // Only auto-run when this file is executed directly (the `rapidreact` bin entry),
 // not when imported (e.g. by tests).
-const isMainModule = !!process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const isMainModule = !!process.argv[1] && fileURLToPath(import.meta.url) === resolveRealPath(process.argv[1]);
 if (isMainModule) {
     run();
 }

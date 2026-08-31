@@ -22,6 +22,22 @@ import {
 
 vi.mock("cross-spawn", () => ({ default: vi.fn() }));
 
+// Symlink creation needs elevated privileges on Windows outside of Developer Mode; probe once so
+// the symlink-specific regression test below can skip itself there instead of failing on an
+// environment limitation unrelated to what it's actually testing.
+const canSymlink = (() => {
+    try {
+        const probeDir = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-cli-symlink-probe-"));
+        const target = path.join(probeDir, "target");
+        fs.writeFileSync(target, "");
+        fs.symlinkSync(target, path.join(probeDir, "link"));
+        fs.rmSync(probeDir, { recursive: true, force: true });
+        return true;
+    } catch {
+        return false;
+    }
+})();
+
 class ProcessExitSignal extends Error {
     constructor(public code: number) {
         super(`process.exit(${code})`);
@@ -424,5 +440,26 @@ describe("cli", () => {
             expect(mod.run).toBeTypeOf("function");
             expect(children.length).toBe(0);
         });
+
+        // Regression test for a real bug: a package manager's `node_modules/.bin/rapidreact` entry
+        // is a symlink on Linux/macOS (unlike Windows, where it's a generated .cmd/shim file that's
+        // already the real path). `argv[1]` is left exactly as invoked — the symlink path — while
+        // `import.meta.url` for the loaded module reflects Node's own symlink-resolved real path, so
+        // a naive `path.resolve(argv[1])` comparison mismatched and silently skipped run() entirely
+        // (no error, no output, exit 0) for every symlink-based install. Only reproducible on an OS
+        // with real symlinks, hence the skip guard above.
+        it.skipIf(!canSymlink)(
+            "Automatically invokes run() when argv[1] is a symlink to this module's real file (e.g. a package-manager .bin entry).",
+            async () => {
+                cwdSpy.mockRestore();
+                const cliAbsPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+                const symlinkPath = path.join(tmpDir, "rapidreact-symlink.ts");
+                fs.symlinkSync(cliAbsPath, symlinkPath);
+                process.argv = ["node", symlinkPath, "frobnicate"];
+                vi.resetModules();
+                await expect(import("../src/cli.js")).rejects.toThrow(ProcessExitSignal);
+                expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("Usage: rapidreact"));
+            },
+        );
     });
 });

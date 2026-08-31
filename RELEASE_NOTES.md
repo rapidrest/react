@@ -1,5 +1,9 @@
 # Release Notes
 
+## v1.0.2
+
+* Fixed an issue with resolving symlinks on Linux/macOS
+
 ## v1.0.1
 
 * Fixed issue with `rapidRestHydrationPlugin()` that caused Vite to try to resolve a non-existant `index.html`
