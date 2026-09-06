@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+
+* Added asset MIME types: webp, avif, jfif
+* Fixed crash with SSR
+* Fixed multiple issues with CSS injection
+
 ## v1.0.2
 
 * Fixed an issue with resolving symlinks on Linux/macOS
