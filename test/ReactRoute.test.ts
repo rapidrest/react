@@ -315,6 +315,52 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
         expect(result.css).toEqual(["/assets/a.css", "/assets/b.css"]);
     });
 
+    it("Walks a manifest entry's `imports` to collect CSS hoisted into a shared chunk (e.g. a " +
+        "layout/shell component several pages import), not just the entry's own `css` array.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = {
+            [entryKey]: {
+                file: "assets/index-abc123.js",
+                css: ["assets/entry.css"],
+                imports: ["_shared-shell.js"],
+            },
+            "_shared-shell.js": { file: "assets/shell-def456.js", css: ["assets/shell.css"] },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.css).toEqual(["/assets/entry.css", "/assets/shell.css"]);
+    });
+
+    it("Dedupes CSS collection against a cycle between shared chunks' `imports` instead of looping " +
+        "forever.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = {
+            [entryKey]: { file: "assets/index-abc123.js", imports: ["_chunk-a.js", "_chunk-b.js"] },
+            "_chunk-a.js": { file: "assets/a-1.js", css: ["assets/a.css"], imports: ["_chunk-b.js"] },
+            "_chunk-b.js": { file: "assets/b-1.js", css: ["assets/b.css"], imports: ["_chunk-a.js"] },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.css.slice().sort()).toEqual(["/assets/a.css", "/assets/b.css"]);
+    });
+
+    it("Ignores an `imports` entry that has no corresponding manifest chunk instead of throwing.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = {
+            [entryKey]: {
+                file: "assets/index-abc123.js",
+                css: ["assets/entry.css"],
+                imports: ["_missing-chunk.js"],
+            },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.css).toEqual(["/assets/entry.css"]);
+    });
+
     it("Falls back to matching the full relative path when appDir isn't a substring of it.", () => {
         const route = new TestableReactRoute(); // appDir = "test/app"
         const pagePath = path.resolve(process.cwd(), "test/fixtures/vite-app/page1.tsx");

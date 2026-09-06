@@ -30,6 +30,13 @@ const { ContentType, Get, Request, Response } = RouteDecorators;
 // `ssrAssetLoaderHooks.ts` exists on disk; running compiled (`ReactRoute.js` in `dist/lib`),
 // only the compiled `ssrAssetLoaderHooks.js` does — mirrors `resolveAppFile`'s own
 // `hasTsxContext` detection below for the identical dev-vs-compiled distinction.
+//
+// The ternary's two branches can never both execute in the same process — this module *is*
+// either `ReactRoute.tsx` or the compiled `ReactRoute.js`, decided once at build time, not
+// per-call — so unlike `hasTsxContext` (a runtime check re-evaluated per `resolveAppFile()` call
+// that tests can toggle via `process.argv`/env vars) there is no way to exercise the untaken
+// branch from a test importing this module in only one of those two forms.
+/* v8 ignore next -- see comment above: the untaken half of this branch requires a second process running the compiled dist */
 register(import.meta.url.endsWith(".tsx") ? "./ssrAssetLoaderHooks.ts" : "./ssrAssetLoaderHooks.js", import.meta.url);
 
 const _hashCache: Map<string, string> = new Map();
