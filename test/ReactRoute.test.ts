@@ -350,6 +350,7 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         fs.mkdirSync(path.join(outDir, "assets"), { recursive: true });
         fs.writeFileSync(path.join(outDir, "assets", "bundle-abc123.js"), "console.log('hi');");
         fs.writeFileSync(path.join(outDir, "assets", "malicious.exe"), "not a real asset");
+        fs.writeFileSync(path.join(outDir, "assets", "logo.webp"), "fake webp bytes");
     });
 
     afterAll(() => {
@@ -371,6 +372,15 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         expect(calls.status).toBeUndefined(); // no explicit status call needed — defaults to 200
         expect(calls.headers["content-type"]).toBe("application/javascript");
         expect(calls.body.toString()).toBe("console.log('hi');");
+    });
+
+    it("Serves a .webp file with the image/webp content type.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res, calls } = fakeResponse();
+        const handled = await route.callTryServeAsset("/assets/logo.webp", res);
+        expect(handled).toBe(true);
+        expect(calls.headers["content-type"]).toBe("image/webp");
     });
 
     it("Returns false for a file that does not exist under outDir.", async () => {

@@ -57,6 +57,9 @@ const ASSET_MIME_TYPES: Record<string, string> = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
     ".ttf": "font/ttf",
+    ".webp": "image/webp",
+    ".avif": "image/avif",
+    ".jfif": "image/jpeg",
 };
 
 interface CacheEntry {
