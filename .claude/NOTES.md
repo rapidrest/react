@@ -95,3 +95,58 @@ Keep entries terse — this is a reference, not a transcript.
   - Read this file only partway through the session, not at the start — led to the mis-scoped
     security finding above. Always read `.claude/NOTES.md` before substantive work in this repo,
     not just when something goes wrong.
+
+- **2026-09-06** — Fixed two real SSR bugs found via a downstream consumer (`mail-server`) actually
+  running `yarn dev`/`yarn build` for the first time against a page importing a stylesheet from a
+  shared component (this package's own documented pattern for getting CSS into a client entry's
+  manifest — see the `appDir` decision above for the general docs-vs-reality drift risk this kind
+  of gap represents).
+  - **Bug 1 — a page/layout module's `import "*.css"` crashed SSR outright.** `ReactRoute.
+    renderPage()` loads page/layout modules via a plain Node `import()` (`pathToFileURL(...).href`)
+    — not through Vite, which is what actually understands CSS imports for the *client* bundle.
+    Node's own loader has no format for `.css` and throws `ERR_UNKNOWN_FILE_EXTENSION` (dev, run
+    from `.tsx` source where the file exists on disk) or `ERR_MODULE_NOT_FOUND` (production,
+    `tsc`-compiled `dist/` never gets a copy of the `.css` file at all). Fixed via a Node Module
+    Customization Hook (`module.register()`, called once at the top of `ReactRoute.tsx`) —
+    `src/ssrAssetLoaderHooks.ts` intercepts *both* `resolve` (redirects matching extensions to a
+    synthetic `css-stub:` URL that always resolves, regardless of whether a file exists on disk)
+    and `load` (returns an empty module for that synthetic URL) — needed both hooks since the two
+    failure modes above trip at different stages. The hooks file must be fully self-contained (it
+    runs in Node's own separate loader thread, no shared state with the rest of this package) and
+    its own specifier must be chosen based on `import.meta.url.endsWith(".tsx")` (source vs
+    compiled) — `register()`'s specifier resolution is Node's own, and does NOT understand the
+    TypeScript/NodeNext `.js`-refers-to-sibling-`.ts` convention every other import in this
+    codebase relies on, so a hardcoded `.js` extension broke instantly under Vitest/any test
+    runner importing the `.tsx` source directly.
+  - **Bug 2 (found only once Bug 1 was fixed and a real `<link>` tag could be checked at all) —
+    `resolveClientUrls()` only ever read the matched manifest entry's own `css` array, silently
+    dropping any stylesheet imported by a *shared* component** (a layout/shell several pages
+    import) rather than the entry file itself. Vite hoists CSS shared across multiple entries into
+    whichever intermediate chunk actually contains the import — visible in the manifest via that
+    chunk's own `imports`/`css` fields, never propagated up onto the entries that transitively
+    import it. This means `AdminShell`/any shared shell component's CSS import (the sanctioned
+    pattern per the Phase 1b/2 entries in `mail-server`'s own NOTES.md) has probably **never**
+    actually produced a `<link>` tag in any real deployment — existing tests only fabricated a
+    manifest JSON directly, never exercised a real page that itself imports CSS via SSR (this repo
+    had no test doing that until now). Fixed by walking `entry.imports` recursively (deduped
+    against cycles shared chunks create) collecting every visited chunk's `css`, not just the
+    entry's own.
+  - **Companion fix, `tsconfig.client.base.json`**: added `"types": ["vite/client"]`. Without it,
+    `tsc -p tsconfig.client.json` (part of `mail-server`'s real `yarn build`, never run against
+    real CSS-importing app code until this session) fails outright on the exact same `import
+    "*.css"` pattern — `vite/client`'s ambient `declare module "*.css"` is the standard fix every
+    Vite+TS project needs and this package's own client tsconfig never had.
+  - **Verification**: confirmed via `curl` against a real running `mail-server` (both `yarn dev`
+    via `tsx`, and a genuine `yarn build` + compiled `node dist/src/server.mongo.js` run against
+    `mongodb-memory-server`/`redis-memory-server` for a true production-path smoke test, not just
+    unit tests) — `/`, `/admin`, `/compose` all now return 200 with a real `<link rel="stylesheet">`
+    tag and a 200 `text/css` response for the linked asset, in both dev and compiled modes. This
+    package's own full `yarn vitest run` (189/190, 1 pre-existing skip) and `mail-server`'s full
+    suite (175/181, the 6 failures being the pre-existing unrelated Redis flake documented in
+    `mail-server`'s own NOTES.md) both stayed green throughout.
+  - **Working-tree note**: this session landed alongside unrelated, uncommitted local work already
+    in progress on `.webp`/`.avif`/`.jfif` `ASSET_MIME_TYPES` support (`src/ReactRoute.tsx`) and a
+    matching `test/ReactRoute.test.ts` test — not this session's, not committed by it (staged only
+    this session's own hunks via `git add -p`, verified via `git diff --cached` before committing).
+    That work is still sitting unstaged/uncommitted in the working tree for whoever's doing it to
+    pick back up.

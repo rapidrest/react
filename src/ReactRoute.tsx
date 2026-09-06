@@ -5,6 +5,7 @@
 import crypto from "crypto";
 import { EventEmitter } from "events";
 import fs from "fs";
+import { register } from "module";
 import path from "path";
 import { pathToFileURL } from "url";
 import { HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapidrest/service-core";
@@ -14,6 +15,22 @@ import { ObjectDecorators, RedisStore } from "@rapidrest/core";
 
 const { Config, Init, Inject, Logger } = ObjectDecorators;
 const { ContentType, Get, Request, Response } = RouteDecorators;
+
+// Makes a page/layout module's static `import "*.css"` (the documented pattern for getting a
+// stylesheet into a client entry's Vite manifest — see `callResolveClientUrls` below) safe to
+// load via plain `import()` for SSR — see `ssrAssetLoaderHooks.ts`'s own doc comment for why this
+// is otherwise a hard crash. Runs once per process, the moment this module is first imported
+// (well before any request-time `renderPage()` call), regardless of how many `ReactRoute`
+// subclasses exist.
+//
+// `register()`'s specifier is resolved by Node's own module resolution, not by whatever
+// transformer (tsx/Vitest) is currently running this file — it does not understand the
+// TypeScript/NodeNext convention of a `.js`-suffixed specifier referring to a sibling `.ts`
+// source file. Running from source (`this file is still `ReactRoute.tsx`), only
+// `ssrAssetLoaderHooks.ts` exists on disk; running compiled (`ReactRoute.js` in `dist/lib`),
+// only the compiled `ssrAssetLoaderHooks.js` does — mirrors `resolveAppFile`'s own
+// `hasTsxContext` detection below for the identical dev-vs-compiled distinction.
+register(import.meta.url.endsWith(".tsx") ? "./ssrAssetLoaderHooks.ts" : "./ssrAssetLoaderHooks.js", import.meta.url);
 
 const _hashCache: Map<string, string> = new Map();
 
@@ -702,7 +719,31 @@ export class ReactRoute {
                     (candidate) => candidate.name && stripExt(candidate.name) === entryKey
                 );
             if (entry) {
-                return { js: `/${entry.file}`, css: (entry.css ?? []).map((f) => `/${f}`) };
+                // A stylesheet imported by a *shared* component (e.g. a layout/shell component
+                // several pages import) doesn't end up in the entry chunk's own `css` array —
+                // Vite hoists CSS shared across multiple entries into whichever intermediate
+                // chunk actually contains the import (visible in the manifest via that chunk's
+                // own `imports`/`css` fields), not onto every entry that transitively pulls it
+                // in. Reading only `entry.css` therefore silently drops any stylesheet imported
+                // from a non-entry module in the graph — walk `imports` (deduping against cycles
+                // shared chunks can create) to collect every chunk's `css`, matching how the
+                // built HTML is actually assembled by Vite/Rollup.
+                const seenChunks = new Set<string>();
+                const collectCss = (chunk: { css?: string[]; imports?: string[] }): string[] => {
+                    const css = [...(chunk.css ?? [])];
+                    for (const importKey of chunk.imports ?? []) {
+                        if (seenChunks.has(importKey)) {
+                            continue;
+                        }
+                        seenChunks.add(importKey);
+                        const imported = manifest[importKey];
+                        if (imported) {
+                            css.push(...collectCss(imported));
+                        }
+                    }
+                    return css;
+                };
+                return { js: `/${entry.file}`, css: [...new Set(collectCss(entry))].map((f) => `/${f}`) };
             }
             this.logger.warn(
                 `[ReactRoute] Manifest entry "${relPath}" not found. ` +

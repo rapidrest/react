@@ -10,7 +10,8 @@
         "allowSyntheticDefaultImports": true,
         "experimentalDecorators": true,
         "emitDecoratorMetadata": true,
-        "noImplicitAny": false
+        "noImplicitAny": false,
+        "types": ["vite/client"]
     },
     "include": ["apps"]
 }
