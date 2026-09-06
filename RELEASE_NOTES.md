@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v1.1.0
 
 * Added asset MIME types: webp, avif, jfif
 * Fixed crash with SSR

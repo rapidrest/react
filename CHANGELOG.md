@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-06
+
+### Added
+- Added new asset mime types for webp, avif, jfif
+- Added @rapidrest/cli dev dependency
+- Added additional coverage tests
+
+### Changed
+- - Make page/layout *.css imports safe under Node's SSR import() via a module hook
+- - Walk manifest imports recursively so CSS from shared components isn't dropped
+- - Add vite/client types to the client tsconfig so *.css imports typecheck
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Switched to rapidrest release tool
+
+### Fixed
+- Fixed SSR crash and missing CSS injection for page-graph stylesheet imports
+
 ## [1.0.2] - 2026-08-31
 
 ### Added
@@ -156,7 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/rapidrest/react/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/rapidrest/react/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/rapidrest/react/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/rapidrest/react/compare/v0.11.0...v1.0.0
