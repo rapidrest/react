@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed `ReactRoute.resolveClientUrls()` never matching a dynamic-route page's Vite manifest entry — Rollup/Vite sanitizes `[`/`]` (from a filename like `[id].tsx`) to `_` in the built entry's `name` field, but the lookup compared against the literal, unsanitized path, so every `hydrate=true` dynamic-route page threw "hydrate=true requires react.manifestPath ... and a matching Vite manifest entry" on every request
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
 ## [2.0.0-beta.0] - 2026-09-09
 
 ### Added

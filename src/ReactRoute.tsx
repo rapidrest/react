@@ -916,10 +916,21 @@ export class ReactRoute {
             const stripExt = (p: string) => p.replace(/\.[^./]+$/, "");
             const anchorIndex = relPath.indexOf(this.appDir);
             const entryKey = stripExt(anchorIndex >= 0 ? relPath.slice(anchorIndex) : relPath);
+            // Rollup/Vite sanitizes characters that aren't safe in a generated chunk name — including
+            // `[`/`]` from a dynamic route segment's filename, e.g. `[id].tsx` — replacing them with `_`
+            // when deriving a manifest entry's `name` field from the (virtual) input key. A dynamic-route
+            // page's `entryKey` is built from the literal, unsanitized source path, so `app/pets/[id].tsx`
+            // must also be compared against its sanitized form (`app/pets/_id_`) — otherwise no dynamic
+            // page's entry is ever found by name, and every `hydrate=true` dynamic page throws here on
+            // every request.
+            const sanitizedEntryKey = entryKey.replace(/[[\]]/g, "_");
             const entry =
                 manifest[relPath] ??
                 Object.values(manifest).find(
                     (candidate) => candidate.name && stripExt(candidate.name) === entryKey
+                ) ??
+                Object.values(manifest).find(
+                    (candidate) => candidate.name && stripExt(candidate.name) === sanitizedEntryKey
                 );
             if (entry) {
                 // A stylesheet imported by a *shared* component (e.g. a layout/shell component

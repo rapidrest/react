@@ -400,6 +400,25 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
         expect(result.js).toBe("/assets/index-abc123.js");
     });
 
+    it("Falls back to a sanitized `name` match for a dynamic-route page, whose `[id]` filename " +
+        "Rollup/Vite renders as `_id_` in the built entry's own `name` field.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/pets/[id].tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const sanitizedName = entryKey.replace(/[[\]]/g, "_");
+        const manifest = {
+            [`rapidrest-entry:${entryKey}`]: {
+                file: "assets/pets-_id_-abc123.js",
+                // Never the literal bracketed entryKey — this is what Rollup/Vite actually writes.
+                name: sanitizedName,
+                src: `rapidrest-entry:${entryKey}`,
+                isEntry: true,
+            },
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/pets-_id_-abc123.js");
+    });
+
     it("Includes css asset paths from the manifest entry when present.", () => {
         const route = new TestableReactRoute();
         const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
