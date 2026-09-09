@@ -27,3 +27,9 @@ export default function PetDetail({ params, fromPage, fromService, serviceSawId 
 export async function fetchProps(_req: HttpRequest) {
     return { fromPage: true };
 }
+
+// Enumerated for static export by ReactRoute's static-paths endpoint — proves the page-level
+// getStaticPaths() path end to end against a real server (see test/static.test.ts).
+export async function getStaticPaths() {
+    return [{ id: "1" }, { id: "2" }];
+}

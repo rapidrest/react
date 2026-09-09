@@ -244,3 +244,59 @@ Keep entries terse — this is a reference, not a transcript.
     exercise a live `Server` instance in this environment — an earlier apparent "real-HTTP tests
     are network-sandboxed here" read turned out to be wrong/transient, not a standing constraint;
     don't assume that limitation in a future session without re-checking).
+
+- **2026-09-09 (later same day)** — Added `getStaticPaths()` support so static export can actually
+  export dynamic routes, not just report their templates as un-crawlable. User's ask evolved
+  mid-session: first "drop dynamic pages from export" (already the shipped behavior, nothing to
+  fix), then explicitly reversed to "enumerate all renderable pages (where possible) and export
+  those" — the feature below is that reversal, not a bug fix.
+  - **Design: a real HTTP endpoint on `ReactRoute`, not an in-process import from `static.ts`.**
+    `exportStaticSite()` can crawl *any* already-running server, not just one `runStaticExport()`
+    itself started (documented capability) — it has no access to that server's DI container/
+    `ObjectFactory`, so enumeration logic backed by `@ReactService` (e.g. querying a database for
+    valid ids) can only run inside the live app process, not from `static.ts`. New
+    `GET <prefix>/__rapidrest__/static-paths` on `ReactRoute` (mirrors `DEV_RELOAD_PATH`'s
+    naming) computes `{ [template]: string[] }` by importing each dynamic page file for an
+    exported `getStaticPaths()` and/or calling the matching dynamic `@ReactService`'s; results
+    from both are unioned/deduped, not one overriding the other. This keeps the standing
+    "`exportStaticSite()` crawls over real HTTP, never reimplements `ReactRoute`'s logic"
+    architecture decision (see above) intact — enumeration is just another thing the real server
+    answers over HTTP, same as rendering.
+  - **Gated behind `STATIC_EXPORT_ENV_VAR` (`RAPIDREACT_STATIC_EXPORT`), not `NODE_ENV`/`isDevMode()`.**
+    Real static export runs with `NODE_ENV=production` (via `tsx`, per `rapidreact export`), so
+    `isDevMode()` is false during a real export — can't reuse it as the gate. Permanently exposing
+    this endpoint in a live deployment would be a real, externally-reachable resource-exhaustion/
+    information-disclosure surface per this repo's own threat model (an anonymous caller could
+    trigger a developer's `getStaticPaths()` DB query on every request, or enumerate every valid
+    id in the system) — not a theoretical concern, so it's opt-in-per-process, not always-on.
+    `runStaticExport()` sets the env var only for the lifetime of the short-lived server it boots
+    itself and restores (not just deletes) the prior value in `finally`, since it's the one place
+    provably safe to set it (that server is never the app's real deployment).
+  - Shared the endpoint path and env var name as constants in `routeMatch.ts` (imported by both
+    `ReactRoute.tsx` and `static.ts`) rather than duplicating the literal strings — the exact
+    "two sources of truth can drift" risk the `appDir`/`fileToRoute` standing decision above
+    already warns about, avoided up front this time instead of fixed later.
+  - `fillRouteTemplate()` (the inverse of `matchRouteTemplate()`) added to `routeMatch.ts`;
+    returns `null` (skips the entry) rather than a partially-filled URL when a `getStaticPaths()`
+    entry is missing a required param — silent skip, no warning, mirrors `matchRouteTemplate`'s
+    own no-warning-on-mismatch precedent.
+  - `test/app/pets/[id].tsx` (already the shared real-server fixture for the dynamic-routing
+    session above) gained a `getStaticPaths()` returning `[{id:"1"},{id:"2"}]`, paired with the
+    existing `DynamicPetService` — real end-to-end coverage in `test/static.test.ts` (opts into
+    export mode manually since that describe manages its own long-lived `Server` rather than one
+    per test via `runStaticExport()`) alongside the *other*, still-unmodified tests in the same
+    describe that deliberately run without the env var, proving the graceful fallback for a server
+    that was never started for export.
+  - **Environment gotcha hit mid-session, worth flagging again despite the note directly above**:
+    a full-suite run showed 17 real-HTTP tests failing with blanket 404s — looked exactly like a
+    real regression (dependency bump between sessions, `2.0.0-beta.0`). Root cause was mundane: an
+    orphaned `node.exe` from an earlier test run in *this same session* was still bound to port
+    3000 (`test/config.ts`'s fixed port), so new test servers silently lost the race for it.
+    Killing the stray process fixed it instantly, no code was wrong. If a fresh `vitest run` shows
+    every real-server test 404ing at once, check `netstat`/listening processes on the configured
+    port before assuming a real regression — this is now the second time in this repo's history
+    this exact symptom showed up for two different root causes (this one; the transient one noted
+    above), so treat "all real-HTTP tests 404 at once" as an environment-check prompt, not a code
+    smell, on sight.
+  - Full session: 100% coverage maintained (257 tests, 1 pre-existing skip), `yarn lint` clean, all
+    four `tsc` build targets clean.

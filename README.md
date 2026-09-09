@@ -205,6 +205,9 @@ A few rules keep this predictable:
 - **No catch-all or optional segments** (no `[...slug]`, no `[[id]]`) — matching the rest of
   RapidREST's routing, which only ever supports a single `:name` token per path segment.
 
+Statically exporting a dynamic route requires one more piece — see
+[Dynamic routes in a static export](#dynamic-routes-in-a-static-export).
+
 ### Client Hydration (optional)
 
 Enable hydration on a route, and generate a matching Vite build:
@@ -256,9 +259,8 @@ export default createViteConfig({ appDir: ["apps/www", "apps/admin"] });
 Every static page under `app/` is file-enumerable, so a whole `@rapidrest/react` app can be
 crawled once and exported as a plain static site: HTML, CSS and JS, deployable to any static host
 (S3, Netlify, GitHub Pages, a CDN) with no server needed at request time. A
-[dynamic route](#dynamic-routes) (`pets/[id].tsx`) is discovered as its `:id`-templated form and
-reported via `result.dynamicRoutes` rather than crawled — see "Known limitations" below for how
-to include concrete instances of it.
+[dynamic route](#dynamic-routes) (`pets/[id].tsx`) is exported too, for every concrete instance the
+app can enumerate — see "Dynamic routes" below.
 
 Rather than reimplementing `ReactRoute`'s rendering logic, export boots your *real* server (real
 DI, real config, real `@ReactService`s) and crawls it over real HTTP, so the exported output can
@@ -320,6 +322,41 @@ This builds the client bundle (`vite build`) and runs `src/export.ts` (or `src/e
 static file server), plus `dist/export/404.html` for static-host fallback routing, and a copy of
 `dist/public` (the built hydration assets) into the export root.
 
+### Dynamic routes in a static export
+
+A [dynamic route](#dynamic-routes) has no fixed set of URLs, so exporting it statically requires
+telling the exporter which concrete instances exist. A page (and/or its matching `@ReactService`)
+can export `getStaticPaths()` — an async function returning every param combination the route
+should be exported for:
+
+```tsx
+// app/pets/[id].tsx
+export async function getStaticPaths() {
+    const pets = await fetch("https://api.example.com/pets").then((r) => r.json());
+    return pets.map((pet) => ({ id: pet.id })); // -> /pets/1, /pets/2, ...
+}
+```
+
+```ts
+// src/services/PetService.ts — DI-backed enumeration, e.g. querying a database
+@ReactService("/pets/:id")
+export default class PetService {
+    @Inject(RepoUtils, { name: Pet.name, args: [Pet] })
+    private petRepo?: RepoUtils<Pet>;
+
+    public async getStaticPaths() {
+        return (await this.petRepo?.find({}))?.map((pet) => ({ id: pet.id })) ?? [];
+    }
+}
+```
+
+Either is optional, and both may be used together (their results are merged) — a nested dynamic
+route (`pets/[id]/reviews/[reviewId].tsx`) needs its own `getStaticPaths()` returning the full set
+of params for *that* route (`{ id, reviewId }`), independent of its parent's. `getStaticPaths()`
+only ever runs during `rapidreact export`/`runStaticExport()` — the endpoint it's served through is
+inactive in a normal deployment (see `StaticExportResult.dynamicRoutes` below for what happens
+when it isn't defined at all).
+
 **Known limitations:**
 
 - Hydration asset URLs are always root-absolute, so the exported site only works correctly when
@@ -327,11 +364,12 @@ static file server), plus `dist/export/404.html` for static-host fallback routin
 - Props are frozen at export time (like Next.js's static export): pages whose `fetchProps`/
   `@ReactService` depend on per-request or authenticated state will bake in whatever an
   unauthenticated crawl request renders. Use `exclude` to skip personalized pages entirely.
-- A [dynamic route](#dynamic-routes) (`pets/[id].tsx`) is discovered as its template
-  (`/pets/:id`) but never auto-crawled — there's no way to enumerate concrete values from the
-  filesystem alone. It's reported via `result.dynamicRoutes` instead; supply concrete instances
-  via `paths`/`StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to include them in
-  the export, or `exclude` it entirely if it shouldn't be statically baked at all.
+- A [dynamic route](#dynamic-routes) (`pets/[id].tsx`) with no `getStaticPaths()` anywhere (page
+  or matching `@ReactService`) can't be enumerated, so it isn't crawled — it's reported via
+  `result.dynamicRoutes` as its template (`/pets/:id`) instead. Supply concrete instances via
+  `paths`/`StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to include it anyway, or
+  `exclude` it entirely if it shouldn't be statically baked at all — an excluded route (whether
+  enumerable or not) never appears in `dynamicRoutes` either, since it was deliberately opted out.
 
 ## Requirements
 

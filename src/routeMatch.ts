@@ -43,3 +43,42 @@ export function matchRouteTemplate(template: string, actualPath: string): Record
     }
     return params;
 }
+
+/**
+ * The inverse of `matchRouteTemplate()`: substitutes every `:name` token in a route template with
+ * the (URI-encoded) value from `params`. Returns `null` — never a partially-filled path — if any
+ * token has no corresponding entry in `params`, so a `getStaticPaths()` result missing a required
+ * param is silently skipped by the caller rather than producing a broken URL.
+ */
+export function fillRouteTemplate(template: string, params: Record<string, string>): string | null {
+    const filled: string[] = [];
+    for (const segment of template.split("/")) {
+        const paramMatch = PARAM_TOKEN_RE.exec(segment);
+        if (!paramMatch) {
+            filled.push(segment);
+            continue;
+        }
+        const value = params[paramMatch[1]];
+        if (value === undefined || value === null) return null;
+        filled.push(encodeURIComponent(value));
+    }
+    return filled.join("/");
+}
+
+/**
+ * Set to `"true"` by `runStaticExport()` (`static.ts`) for the lifetime of the dedicated server it
+ * boots to crawl for a static export, and read by `ReactRoute` to gate the `STATIC_PATHS_ROUTE`
+ * endpoint. Shared here (rather than duplicated as a literal in both files) so the two stay in
+ * sync — the endpoint must never be reachable in a normal deployment, only during export, since it
+ * runs developer-authored `getStaticPaths()` code (page or `@ReactService`) that may hit a
+ * database; permanently exposing that to anonymous callers would be a real, externally-reachable
+ * resource-exhaustion/information-disclosure surface, not just a build-time convenience.
+ */
+export const STATIC_EXPORT_ENV_VAR = "RAPIDREACT_STATIC_EXPORT";
+
+/**
+ * Path of `ReactRoute`'s static-path-enumeration endpoint (mount-prefix-relative, like
+ * `DEV_RELOAD_PATH`). Only active while `process.env[STATIC_EXPORT_ENV_VAR] === "true"`. Shared
+ * with `static.ts` so the route string itself isn't duplicated between the reader and the writer.
+ */
+export const STATIC_PATHS_ROUTE = "/__rapidrest__/static-paths";

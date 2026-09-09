@@ -12,7 +12,14 @@ import { HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapi
 import React, { ComponentType, PropsWithChildren } from "react";
 import { renderToString } from "react-dom/server";
 import { ObjectDecorators, RedisStore } from "@rapidrest/core";
-import { matchRouteTemplate, parseDynamicSegmentName } from "./routeMatch.js";
+import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
+import {
+    fillRouteTemplate,
+    matchRouteTemplate,
+    parseDynamicSegmentName,
+    STATIC_EXPORT_ENV_VAR,
+    STATIC_PATHS_ROUTE,
+} from "./routeMatch.js";
 
 const { Config, Init, Inject, Logger } = ObjectDecorators;
 const { ContentType, Get, Request, Response } = RouteDecorators;
@@ -92,6 +99,10 @@ interface CacheEntry {
  * Each page file exports:
  *  - `default`         — React component (required)
  *  - `fetchProps`      — async function (req) → props object (optional)
+ *  - `getStaticPaths`  — async function () → array of `{ [param]: string }` objects, one per
+ *    concrete instance of a dynamic route this page should statically export (optional; a
+ *    `@ReactService` matching the same dynamic route may also implement `getStaticPaths()` for
+ *    DI-backed enumeration — see `exportStaticSite()` in `static.ts`)
  *
  * Subclass to inject DI services into `fetchProps`:
  * ```ts
@@ -682,6 +693,14 @@ export class ReactRoute {
             return;
         }
 
+        // Static-path enumeration, used by exportStaticSite() to discover concrete instances of
+        // this app's dynamic routes — only reachable while a dedicated static-export crawl is in
+        // progress (see STATIC_EXPORT_ENV_VAR's doc comment for why this must never be always-on).
+        if (process.env[STATIC_EXPORT_ENV_VAR] === "true" && pageSegment === STATIC_PATHS_ROUTE) {
+            await this.handleStaticPaths(res);
+            return res;
+        }
+
         const cacheClient = process.env.NODE_ENV === "production" ? this.cache : undefined;
         const cacheKey = cacheClient ? this.hashRequest(req) : null;
 
@@ -823,6 +842,68 @@ export class ReactRoute {
             this.devReloadConnectionCount--;
         });
         // Do NOT call res.end() — the SSE stream stays open.
+    }
+
+    // --- Static path enumeration (export) ---
+
+    /**
+     * Computes, for every dynamic route template discovered under `appDir`, the concrete path
+     * instances the app can enumerate — via a page's own exported `getStaticPaths()` and/or the
+     * matching `@ReactService`'s `getStaticPaths()` method (DI-backed, e.g. querying a database
+     * for every valid id). Both are optional; a template with neither is simply absent from the
+     * response, meaning `exportStaticSite()` cannot include it and reports it as un-enumerable
+     * instead. Results from page and service are unioned (deduped) rather than one taking
+     * precedence — either is a valid way to declare an instance exists.
+     *
+     * Sends `{ [template: string]: string[] }` as the response body — always JSON, regardless of
+     * the class-level `@ContentType("text/html")` on `get()`, since this bypasses that wrapper
+     * (see the call site in `get()`, which returns `res` directly like `tryServeAsset()` does).
+     */
+    private async handleStaticPaths(res: HttpResponse): Promise<void> {
+        const templates = new Map<string, string>(); // template -> its (first-found) relative page file
+        for (const relPath of scanAppDirPages(this.appDir)) {
+            const template = fileToRouteTemplate(relPath);
+            if (template.includes(":") && !templates.has(template)) {
+                templates.set(template, relPath);
+            }
+        }
+
+        const result: Record<string, string[]> = {};
+        for (const [template, relPath] of templates) {
+            const paths = new Set<string>();
+            const addEntries = (entries: Record<string, string>[] | null | undefined) => {
+                for (const params of entries ?? []) {
+                    const filled = fillRouteTemplate(template, params);
+                    if (filled) paths.add(filled);
+                }
+            };
+
+            try {
+                const filePath = path.resolve(process.cwd(), this.appDir, relPath);
+                const mod = await import(pathToFileURL(filePath).href);
+                if (typeof mod.getStaticPaths === "function") {
+                    addEntries(await mod.getStaticPaths());
+                }
+            } catch (err) {
+                this.logger.warn(`[ReactRoute] getStaticPaths() failed for page "${relPath}":`, err);
+            }
+
+            const service = this.dynamicServices.find((s) => s.template === template)?.instance;
+            if (service && typeof service.getStaticPaths === "function") {
+                try {
+                    addEntries(await service.getStaticPaths());
+                } catch (err) {
+                    this.logger.warn(
+                        `[ReactRoute] getStaticPaths() failed for the @ReactService matching "${template}":`, err
+                    );
+                }
+            }
+
+            if (paths.size > 0) result[template] = [...paths];
+        }
+
+        (res as any).setHeader?.("content-type", "application/json");
+        (res as any).send?.(JSON.stringify(result));
     }
 
     // --- Static asset serving ---

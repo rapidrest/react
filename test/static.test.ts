@@ -10,6 +10,7 @@ import config from "./config";
 import { ObjectFactory, Server } from "@rapidrest/service-core";
 import { Logger } from "@rapidrest/core";
 import { discoverRoutes, exportStaticSite } from "../src/static.js";
+import { STATIC_EXPORT_ENV_VAR } from "../src/routeMatch.js";
 
 describe("discoverRoutes", () => {
     it("Returns an empty array for a non-existent appDir.", () => {
@@ -236,6 +237,72 @@ describe("exportStaticSite against a real server", () => {
             concurrency: 1,
         });
         expect(result.pages.length).toBe(5);
+    });
+
+    // These two tests opt into "export mode" manually (the env var runStaticExport() would
+    // otherwise set) since this describe manages its own long-lived Server directly rather than
+    // going through runStaticExport() per test — every other test above deliberately runs WITHOUT
+    // it, proving exportStaticSite() still degrades gracefully (falls back to reporting templates
+    // in dynamicRoutes) against a server that was never started for export at all, exactly as
+    // documented for the "already-running server" use case.
+    function withStaticExportMode<T>(fn: () => Promise<T>): Promise<T> {
+        const original = process.env[STATIC_EXPORT_ENV_VAR];
+        process.env[STATIC_EXPORT_ENV_VAR] = "true";
+        return fn().finally(() => {
+            if (original === undefined) delete process.env[STATIC_EXPORT_ENV_VAR];
+            else process.env[STATIC_EXPORT_ENV_VAR] = original;
+        });
+    }
+
+    it("Enumerates and crawls a dynamic route's concrete instances when getStaticPaths() is " +
+        "available (test/app/pets/[id].tsx's page-level export, backed by the real " +
+        "DynamicPetService for props), reporting only the remaining un-enumerated nested " +
+        "template.", async () => {
+        const result = await withStaticExportMode(() => exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+        }));
+
+        expect(result.errors).toEqual([]);
+        expect(result.pages.map((p) => p.path).sort()).toEqual([
+            "/",
+            "/auth/login",
+            "/di-pets",
+            "/pets",
+            "/pets/1",
+            "/pets/2",
+            "/pets/featured",
+        ]);
+        expect(result.dynamicRoutes).toEqual([{ path: "/pets/:id/reviews/:reviewId" }]);
+
+        const pet1 = fs.readFileSync(path.join(tmpDir, "pets", "1", "index.html"), "utf-8");
+        expect(pet1).toContain("PetId:1");
+        expect(pet1).toContain("FromPage:true");
+        expect(pet1).toContain("FromService:true");
+        expect(pet1).toContain("ServiceSawId:1");
+        expect(fs.readFileSync(path.join(tmpDir, "pets", "2", "index.html"), "utf-8")).toContain("PetId:2");
+    });
+
+    it("Still excludes an enumerated dynamic route's concrete instances when they match " +
+        "exclude, even though they were successfully enumerated.", async () => {
+        const result = await withStaticExportMode(() => exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+            exclude: [/^\/pets\/\d+$/],
+        }));
+
+        const paths = result.pages.map((p) => p.path);
+        expect(paths).not.toContain("/pets/1");
+        expect(paths).not.toContain("/pets/2");
+        expect(paths).toContain("/pets/featured");
     });
 });
 

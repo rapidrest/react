@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Server, type ServerOptions } from "@rapidrest/service-core";
 import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
+import { STATIC_EXPORT_ENV_VAR, STATIC_PATHS_ROUTE } from "./routeMatch.js";
 
 /** A guaranteed-unmatched path used to probe the app's real `_404` page during export. */
 const NOT_FOUND_PROBE = "/__rapidrest_static_export_404_probe__";
@@ -67,11 +68,14 @@ export interface StaticExportOptions {
 export interface StaticExportResult {
     pages: { path: string; outFile: string; status: number }[];
     errors: { path: string; status?: number; error?: string }[];
-    /** Discovered dynamic-route templates (e.g. `/pets/:id`) that were not crawled — there is no
-     * way to enumerate concrete values for them from the filesystem alone. Supply concrete
-     * instances via `paths`/`StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to
-     * include them in the export; a template excluded via `exclude` never appears here either,
-     * since it was deliberately opted out rather than merely not yet concretized. */
+    /** Discovered dynamic-route templates (e.g. `/pets/:id`) that were not exported — either
+     * nothing in the app could enumerate concrete instances of them (no page or matching
+     * `@ReactService` implements `getStaticPaths()`; see `ReactRoute`), or the app couldn't be
+     * asked at all (the crawled server wasn't started via `runStaticExport()`, so the
+     * enumeration endpoint was never active). Supply concrete instances via `paths`/
+     * `StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to include them in the
+     * export anyway; a template excluded via `exclude` never appears here either, since it was
+     * deliberately opted out rather than merely left un-enumerable. */
     dynamicRoutes: { path: string }[];
 }
 
@@ -197,6 +201,8 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
               exclude: options.exclude ?? [],
           }];
 
+    const baseUrl = `http://${host}:${port}`;
+
     interface CrawlTask {
         route: string;
         fetchPrefix: string;
@@ -211,27 +217,45 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
         const isExcluded = (route: string) =>
             appExclude.some((pattern) => (typeof pattern === "string" ? pattern === route : pattern.test(route)));
 
-        // A discovered route template (e.g. "/pets/:id") can't be fetched as a literal URL — there
-        // is no way to enumerate concrete values from the filesystem alone. Split it out of the
-        // crawl set and report it separately; `app.paths` entries are the developer's own concrete
-        // instantiations and are never treated as templates, even if one happened to contain ":".
+        // A discovered route template (e.g. "/pets/:id") can't be fetched as a literal URL by
+        // itself — ask the live app (real DI, real config) which concrete instances of it it can
+        // enumerate, via ReactRoute's STATIC_PATHS_ROUTE endpoint (a page's own `getStaticPaths()`
+        // and/or a matching `@ReactService`'s). `app.paths` entries are the developer's own
+        // concrete instantiations and are never treated as templates, even if one happened to
+        // contain ":".
         const discovered = discoverRoutes(app.appDir);
         const discoveredConcrete = discovered.filter((route) => !route.includes(":"));
         const discoveredTemplates = discovered.filter((route) => route.includes(":"));
 
-        const routes = [...new Set([...discoveredConcrete, ...(app.paths ?? [])])]
+        let enumerated: Record<string, string[]> = {};
+        if (discoveredTemplates.length > 0) {
+            try {
+                const res = await fetch(`${baseUrl}${fetchPrefix}${STATIC_PATHS_ROUTE}`);
+                if (res.status === 200) enumerated = await res.json();
+            } catch {
+                // Enumeration endpoint unreachable or returned something unexpected (e.g. the
+                // crawled server wasn't started via runStaticExport(), so it was never active) —
+                // every discovered template falls back to being reported in dynamicRoutes below,
+                // exactly as if nothing had enumerated it.
+            }
+        }
+
+        const enumeratedRoutes: string[] = [];
+        for (const template of discoveredTemplates) {
+            const concretePaths = enumerated[template];
+            if (concretePaths && concretePaths.length > 0) {
+                enumeratedRoutes.push(...concretePaths);
+            } else if (!isExcluded(template)) {
+                result.dynamicRoutes.push({ path: outputPrefix + template });
+            }
+        }
+
+        const routes = [...new Set([...discoveredConcrete, ...enumeratedRoutes, ...(app.paths ?? [])])]
             .filter((route) => !isExcluded(route));
         for (const route of routes) {
             tasks.push({ route, fetchPrefix, outputPrefix });
         }
-
-        for (const route of discoveredTemplates) {
-            if (isExcluded(route)) continue;
-            result.dynamicRoutes.push({ path: outputPrefix + route });
-        }
     }
-
-    const baseUrl = `http://${host}:${port}`;
 
     // Start from a clean outDir so a page removed from appDir or newly added to `exclude`
     // doesn't leave stale — possibly personalized — HTML behind from a prior export run.
@@ -297,16 +321,30 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
  * then stops it. Does not destroy `serverOptions.objectFactory` — the caller created it and
  * owns its lifecycle (call `objectFactory.destroy()` after this resolves), matching the
  * `Server`/`ObjectFactory` ownership split used elsewhere in this codebase.
+ *
+ * Sets `STATIC_EXPORT_ENV_VAR` for the lifetime of the server it starts, activating each
+ * `ReactRoute`'s static-path-enumeration endpoint on it — the server this function boots is
+ * always a short-lived, export-only instance, never the app's real deployment, so this is the one
+ * place that flag is safe to set. Restored afterward (not just left set) in case the calling
+ * process goes on to do other things — e.g. a test suite invoking this repeatedly, or a host
+ * embedding export as one step alongside others.
  */
 export async function runStaticExport(
     serverOptions: ServerOptions,
     exportOptions: Omit<StaticExportOptions, "port"> = {}
 ): Promise<StaticExportResult> {
     const server = new Server(serverOptions);
+    const originalEnvVar = process.env[STATIC_EXPORT_ENV_VAR];
+    process.env[STATIC_EXPORT_ENV_VAR] = "true";
     await server.start();
     try {
         return await exportStaticSite({ port: server.port, ...exportOptions });
     } finally {
         await server.stop();
+        if (originalEnvVar === undefined) {
+            delete process.env[STATIC_EXPORT_ENV_VAR];
+        } else {
+            process.env[STATIC_EXPORT_ENV_VAR] = originalEnvVar;
+        }
     }
 }

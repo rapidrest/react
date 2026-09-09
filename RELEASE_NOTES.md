@@ -1,5 +1,16 @@
 # Release Notes
 
+## Unreleased
+
+* Added `getStaticPaths()` support for [dynamic routes](README.md#dynamic-routes): a page and/or
+  its matching `@ReactService` can now enumerate the concrete instances of a dynamic route (e.g.
+  `/pets/1`, `/pets/2`) to include in a static export, instead of the route always being dropped
+  and only reported via `dynamicRoutes`
+* Fixed `ReactRoute.resolveClientUrls()` never matching a dynamic-route page's Vite manifest
+  entry — Rollup/Vite sanitizes `[`/`]` (from a filename like `[id].tsx`) to `_` in the built
+  entry's `name` field, but the lookup compared against the literal, unsanitized path, so every
+  `hydrate=true` dynamic-route page threw on every request
+
 ## v2.0.0-beta.0
 
 * Added support for dynamic route segments (e.g. `app/pets/[id].tsx` or `app/pets/[id]/index.tsx`

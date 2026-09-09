@@ -11,6 +11,7 @@ import { HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapi
 import { Logger } from "@rapidrest/core";
 import { ReactRoute } from "../src/ReactRoute.js";
 import { ReactService } from "../src/ReactDecorators.js";
+import { STATIC_EXPORT_ENV_VAR, STATIC_PATHS_ROUTE } from "../src/routeMatch.js";
 
 const { Route } = RouteDecorators;
 
@@ -112,6 +113,14 @@ class TestableReactRoute extends ReactRoute {
 
     public callResolveService(pageSegment: string): any {
         return (this as any).resolveService(pageSegment);
+    }
+
+    public setDynamicServices(services: { template: string; instance: any }[]): void {
+        (this as any).dynamicServices = services;
+    }
+
+    public callHandleStaticPaths(res: HttpResponse): Promise<void> {
+        return (this as any).handleStaticPaths(res);
     }
 }
 
@@ -875,5 +884,126 @@ describe("ReactRoute.get hydration Tests", () => {
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe("ReactRoute.handleStaticPaths / STATIC_PATHS_ROUTE gating", () => {
+    class AppRoute extends TestableReactRoute {
+        protected readonly appDir: string = "test/app";
+    }
+
+    let originalEnvVar: string | undefined;
+
+    beforeEach(() => {
+        originalEnvVar = process.env[STATIC_EXPORT_ENV_VAR];
+    });
+
+    afterEach(() => {
+        if (originalEnvVar === undefined) delete process.env[STATIC_EXPORT_ENV_VAR];
+        else process.env[STATIC_EXPORT_ENV_VAR] = originalEnvVar;
+    });
+
+    it("get() falls through to normal 404 page resolution for STATIC_PATHS_ROUTE when the " +
+        "export-mode env var is not set — the endpoint must never be reachable outside export.", async () => {
+        delete process.env[STATIC_EXPORT_ENV_VAR];
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        const res = fakeResponse();
+        await route.get(fakeRequest({ path: STATIC_PATHS_ROUTE }), res);
+        expect(res.status).toHaveBeenCalledWith(404);
+        expect((res.send as any).mock.calls[0]?.[0]).toContain("Page not found");
+    });
+
+    it("get() serves JSON from STATIC_PATHS_ROUTE when the export-mode env var is set.", async () => {
+        process.env[STATIC_EXPORT_ENV_VAR] = "true";
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        const res = fakeResponse();
+        const result = await route.get(fakeRequest({ path: STATIC_PATHS_ROUTE }), res);
+        expect(result).toBe(res);
+        expect(res.setHeader).toHaveBeenCalledWith("content-type", "application/json");
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        expect(body["/pets/:id"]).toEqual(expect.arrayContaining(["/pets/1", "/pets/2"]));
+    });
+
+    it("Unions and dedupes entries from a page's own getStaticPaths() and a matching dynamic " +
+        "@ReactService's getStaticPaths(), rather than one taking precedence.", async () => {
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        route.setDynamicServices([
+            {
+                template: "/pets/:id",
+                instance: { getStaticPaths: async () => [{ id: "2" }, { id: "3" }] },
+            },
+        ]);
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        // Page contributes 1, 2; service contributes 2, 3 — union deduped, not one replacing the other.
+        expect(body["/pets/:id"].sort()).toEqual(["/pets/1", "/pets/2", "/pets/3"]);
+    });
+
+    it("Skips a getStaticPaths() entry missing a required param instead of producing a broken URL.", async () => {
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        route.setDynamicServices([
+            { template: "/pets/:id", instance: { getStaticPaths: async () => [{ notId: "x" }] } },
+        ]);
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        // The malformed service entry contributes nothing, but the page's own two entries still do.
+        expect(body["/pets/:id"].sort()).toEqual(["/pets/1", "/pets/2"]);
+    });
+
+    it("Logs a warning and continues (rather than crashing the endpoint) when a page's " +
+        "getStaticPaths() throws — a sibling dynamic route is still enumerated normally.", async () => {
+        class ThrowingRoute extends TestableReactRoute {
+            protected readonly appDir: string = "test/fixtures/getstaticpaths-throws";
+        }
+        const warn = vi.fn();
+        const route = new ThrowingRoute();
+        route.setLogger({ ...noopLogger, warn });
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("getStaticPaths() failed for page"), expect.any(Error)
+        );
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        expect(body).toEqual({});
+    });
+
+    it("Logs a warning and continues when a @ReactService's getStaticPaths() throws.", async () => {
+        const warn = vi.fn();
+        const route = new AppRoute();
+        route.setLogger({ ...noopLogger, warn });
+        route.setDynamicServices([
+            {
+                template: "/pets/:id",
+                instance: {
+                    getStaticPaths: async () => {
+                        throw new Error("db unavailable");
+                    },
+                },
+            },
+        ]);
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining("getStaticPaths() failed for the @ReactService matching"), expect.any(Error)
+        );
+        // The page's own entries still come through despite the service failing.
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        expect(body["/pets/:id"].sort()).toEqual(["/pets/1", "/pets/2"]);
+    });
+
+    it("Omits a dynamic-route template entirely from the response when nothing enumerates it.", async () => {
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        // test/app/pets/[id]/reviews/[reviewId].tsx has no getStaticPaths and no matching service.
+        expect(body["/pets/:id/reviews/:reviewId"]).toBeUndefined();
     });
 });

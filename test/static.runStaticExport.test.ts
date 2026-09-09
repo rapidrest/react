@@ -32,6 +32,7 @@ vi.mock("@rapidrest/service-core", async (importOriginal) => {
 });
 
 import { runStaticExport } from "../src/static.js";
+import { STATIC_EXPORT_ENV_VAR } from "../src/routeMatch.js";
 
 describe("runStaticExport", () => {
     it("Constructs a Server with the given options, starts it, crawls it via exportStaticSite " +
@@ -47,5 +48,36 @@ describe("runStaticExport", () => {
         expect(startMock).toHaveBeenCalledTimes(1);
         expect(stopMock).toHaveBeenCalledTimes(1);
         expect(result).toEqual({ pages: [], errors: [], dynamicRoutes: [] });
+    });
+
+    it("Sets STATIC_EXPORT_ENV_VAR for the duration of the crawl, then deletes it afterward " +
+        "when it wasn't set beforehand.", async () => {
+        delete process.env[STATIC_EXPORT_ENV_VAR];
+        let sawDuringStart: string | undefined;
+        startMock.mockImplementationOnce(async () => {
+            sawDuringStart = process.env[STATIC_EXPORT_ENV_VAR];
+        });
+
+        await runStaticExport(
+            { config: {} as any, basePath: "." },
+            { appDir: "test/fixtures/does-not-exist", paths: [], notFound: false }
+        );
+
+        expect(sawDuringStart).toBe("true");
+        expect(process.env[STATIC_EXPORT_ENV_VAR]).toBeUndefined();
+    });
+
+    it("Restores STATIC_EXPORT_ENV_VAR to its prior value afterward, rather than deleting it, " +
+        "when it was already set before the call.", async () => {
+        process.env[STATIC_EXPORT_ENV_VAR] = "was-already-here";
+        try {
+            await runStaticExport(
+                { config: {} as any, basePath: "." },
+                { appDir: "test/fixtures/does-not-exist", paths: [], notFound: false }
+            );
+            expect(process.env[STATIC_EXPORT_ENV_VAR]).toBe("was-already-here");
+        } finally {
+            delete process.env[STATIC_EXPORT_ENV_VAR];
+        }
     });
 });
