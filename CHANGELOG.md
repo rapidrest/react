@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.0] - 2026-09-09
+
+### Added
+- Added dynamic route segment support via bracketed file names like app/pets/[id].tsx
+- Added colon-name dynamic-path matching to @ReactService for DI-backed dynamic data fetching
+- Added a dynamicRoutes field to exportStaticSite()'s result for discovered dynamic-route templates
+
+### Changed
+- Change ReactRoute.resolveAppFile()'s return type to include captured dynamic-segment params
+- Update RELEASE_NOTES.md and README.md for the dynamic-routing and nested-page-discovery changes
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Updated CI workflows
+
+### Fixed
+- Fixed file-based routing to discover nested non-index page files at any depth
+
 ## [1.1.0] - 2026-09-06
 
 ### Added
@@ -173,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...HEAD
+[2.0.0-beta.0]: https://github.com/rapidrest/react/compare/v1.1.0...v2.0.0-beta.0
 [1.1.0]: https://github.com/rapidrest/react/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/rapidrest/react/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/rapidrest/react/compare/v1.0.0...v1.0.1

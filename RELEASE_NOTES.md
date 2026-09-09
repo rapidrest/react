@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v2.0.0-beta.0
 
 * Added support for dynamic route segments (e.g. `app/pets/[id].tsx` or `app/pets/[id]/index.tsx`
   serving `GET /pets/:id`), with the captured value exposed via `req.params`/`props.params`
