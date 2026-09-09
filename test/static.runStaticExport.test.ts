@@ -46,6 +46,6 @@ describe("runStaticExport", () => {
         expect(capturedRef.options).toBe(serverOptions);
         expect(startMock).toHaveBeenCalledTimes(1);
         expect(stopMock).toHaveBeenCalledTimes(1);
-        expect(result).toEqual({ pages: [], errors: [] });
+        expect(result).toEqual({ pages: [], errors: [], dynamicRoutes: [] });
     });
 });

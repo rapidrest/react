@@ -99,12 +99,19 @@ class TestableReactRoute extends ReactRoute {
         return (this as any).injectHydrationAssets(html, props, pagePath);
     }
 
-    public callResolveAppFile(appDir: string, segment: string): Promise<string | null> {
+    public callResolveAppFile(
+        appDir: string,
+        segment: string
+    ): Promise<{ file: string; params: Record<string, string> } | null> {
         return (this as any).resolveAppFile(appDir, segment);
     }
 
     public getServiceFor(pageSegment: string): any {
         return (this as any).services.get(pageSegment);
+    }
+
+    public callResolveService(pageSegment: string): any {
+        return (this as any).resolveService(pageSegment);
     }
 }
 
@@ -296,6 +303,70 @@ describe("ReactRoute.init Tests", () => {
         await route.callInit();
         await vi.waitFor(() => expect(route.getServiceFor("/")).toBe(instance));
     });
+
+    it("Registers a react service whose path contains a ':name' token as a dynamic template, " +
+        "not an exact-match entry, and resolves it via resolveService() for a matching segment.", async () => {
+        @ReactService("/app/pets/:id")
+        class DynamicService {
+            async fetchProps() {
+                return { fromService: true };
+            }
+        }
+        const instance = new DynamicService();
+        const newInstance = vi.fn().mockResolvedValue(instance);
+        const fakeObjectFactory = { classes: new Map<string, any>([["DynamicService", DynamicService]]), newInstance };
+
+        @Route("/app/*")
+        class PrefixedRoute extends TestableReactRoute {}
+
+        const route = new PrefixedRoute();
+        route.setLogger(noopLogger);
+        route.setObjectFactory(fakeObjectFactory as any);
+        await route.callInit();
+        await vi.waitFor(() => expect(route.callResolveService("/pets/99")).toBe(instance));
+        // Never registered as an exact-match entry.
+        expect(route.getServiceFor("/pets/:id")).toBeUndefined();
+        expect(route.getServiceFor("/pets/99")).toBeUndefined();
+        // A segment that doesn't match the template at all resolves to nothing.
+        expect(route.callResolveService("/other")).toBeUndefined();
+    });
+
+    it("Prefers an exact literal match over a dynamic template for the same segment.", async () => {
+        @ReactService("/app/pets/:id")
+        class DynamicService {
+            async fetchProps() {
+                return { fromService: "dynamic" };
+            }
+        }
+        @ReactService("/app/pets/featured")
+        class ExactService {
+            async fetchProps() {
+                return { fromService: "exact" };
+            }
+        }
+        const dynamicInstance = new DynamicService();
+        const exactInstance = new ExactService();
+        const newInstance = vi.fn()
+            .mockResolvedValueOnce(dynamicInstance)
+            .mockResolvedValueOnce(exactInstance);
+        const fakeObjectFactory = {
+            classes: new Map<string, any>([
+                ["DynamicService", DynamicService],
+                ["ExactService", ExactService],
+            ]),
+            newInstance,
+        };
+
+        @Route("/app/*")
+        class PrefixedRoute extends TestableReactRoute {}
+
+        const route = new PrefixedRoute();
+        route.setLogger(noopLogger);
+        route.setObjectFactory(fakeObjectFactory as any);
+        await route.callInit();
+        await vi.waitFor(() => expect(route.callResolveService("/pets/featured")).toBe(exactInstance));
+        expect(route.callResolveService("/pets/99")).toBe(dynamicInstance);
+    });
 });
 
 describe("ReactRoute.hashRequest cache eviction", () => {
@@ -327,7 +398,7 @@ describe("ReactRoute.resolveAppFile edge cases", () => {
             // hasTsxContext still ends up true via the VITEST env fallback, so .tsx resolution
             // still succeeds — this only exercises the `process.argv[1] ?? ""` fallback itself.
             const result = await route.callResolveAppFile("test/app", "/index");
-            expect(result).toMatch(/index\.tsx$/);
+            expect(result?.file).toMatch(/index\.tsx$/);
         } finally {
             process.argv[1] = original;
         }
@@ -342,7 +413,7 @@ describe("ReactRoute.resolveAppFile edge cases", () => {
             process.env.NODE_ENV = "production";
             const route = new TestableReactRoute();
             const first = await route.callResolveAppFile(dir, "/page");
-            expect(first).toMatch(/page\.tsx$/);
+            expect(first?.file).toMatch(/page\.tsx$/);
 
             fs.rmSync(filePath);
             const second = await route.callResolveAppFile(dir, "/page");

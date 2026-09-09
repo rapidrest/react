@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Server, type ServerOptions } from "@rapidrest/service-core";
-import { scanAppDirPages } from "./appDirScan.js";
+import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
 
 /** A guaranteed-unmatched path used to probe the app's real `_404` page during export. */
 const NOT_FOUND_PROBE = "/__rapidrest_static_export_404_probe__";
@@ -67,21 +67,18 @@ export interface StaticExportOptions {
 export interface StaticExportResult {
     pages: { path: string; outFile: string; status: number }[];
     errors: { path: string; status?: number; error?: string }[];
-}
-
-/**
- * Converts an appDir-relative page file path (as returned by `scanAppDirPages()`) to the
- * route path it serves, matching `ReactRoute.resolveAppFile()`'s convention:
- * `index.tsx` → `/`, `pets.tsx` → `/pets`, `auth/login/index.tsx` → `/auth/login`.
- */
-function fileToRoute(relPath: string): string {
-    const noExt = relPath.replace(/\.tsx$/, "");
-    return "/" + noExt.replace(/(^|\/)index$/, "");
+    /** Discovered dynamic-route templates (e.g. `/pets/:id`) that were not crawled — there is no
+     * way to enumerate concrete values for them from the filesystem alone. Supply concrete
+     * instances via `paths`/`StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to
+     * include them in the export; a template excluded via `exclude` never appears here either,
+     * since it was deliberately opted out rather than merely not yet concretized. */
+    dynamicRoutes: { path: string }[];
 }
 
 /**
  * Discovers the route paths served by `appDir`, matching the same file convention
- * `vite.ts` uses to discover hydration entry points.
+ * `vite.ts` uses to discover hydration entry points and `ReactRoute.resolveAppFile()` uses to
+ * resolve them at request time (`fileToRouteTemplate()` in `appDirScan.ts`).
  *
  * `app/pets.tsx` and `app/pets/index.tsx` both legitimately serve `/pets` (per
  * `ReactRoute.resolveAppFile()`'s own suffix-trial order) — when both exist, they map to
@@ -89,9 +86,12 @@ function fileToRoute(relPath: string): string {
  * irrelevant to discovery itself: the live server (crawled over real HTTP by
  * `exportStaticSite()`) is the one that resolves the file for each request, exactly as it
  * would for a normal, non-exported deployment.
+ *
+ * A dynamic route (`app/pets/[id].tsx`) is discovered as its `:id`-templated form (`/pets/:id`) —
+ * see `exportStaticSite()` for how it is split out of the crawlable route set.
  */
 export function discoverRoutes(appDir: string): string[] {
-    return [...new Set(scanAppDirPages(appDir).map(fileToRoute))];
+    return [...new Set(scanAppDirPages(appDir).map(fileToRouteTemplate))];
 }
 
 /**
@@ -203,20 +203,35 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
         outputPrefix: string;
     }
     const tasks: CrawlTask[] = [];
+    const result: StaticExportResult = { pages: [], errors: [], dynamicRoutes: [] };
     for (const app of apps) {
         const fetchPrefix = app.routePrefix ?? "";
+        const outputPrefix = isMultiAppForm ? fetchPrefix : "";
         const appExclude = app.exclude ?? [];
         const isExcluded = (route: string) =>
             appExclude.some((pattern) => (typeof pattern === "string" ? pattern === route : pattern.test(route)));
-        const routes = [...new Set([...discoverRoutes(app.appDir), ...(app.paths ?? [])])]
+
+        // A discovered route template (e.g. "/pets/:id") can't be fetched as a literal URL — there
+        // is no way to enumerate concrete values from the filesystem alone. Split it out of the
+        // crawl set and report it separately; `app.paths` entries are the developer's own concrete
+        // instantiations and are never treated as templates, even if one happened to contain ":".
+        const discovered = discoverRoutes(app.appDir);
+        const discoveredConcrete = discovered.filter((route) => !route.includes(":"));
+        const discoveredTemplates = discovered.filter((route) => route.includes(":"));
+
+        const routes = [...new Set([...discoveredConcrete, ...(app.paths ?? [])])]
             .filter((route) => !isExcluded(route));
         for (const route of routes) {
-            tasks.push({ route, fetchPrefix, outputPrefix: isMultiAppForm ? fetchPrefix : "" });
+            tasks.push({ route, fetchPrefix, outputPrefix });
+        }
+
+        for (const route of discoveredTemplates) {
+            if (isExcluded(route)) continue;
+            result.dynamicRoutes.push({ path: outputPrefix + route });
         }
     }
 
     const baseUrl = `http://${host}:${port}`;
-    const result: StaticExportResult = { pages: [], errors: [] };
 
     // Start from a clean outDir so a page removed from appDir or newly added to `exclude`
     // doesn't leave stale — possibly personalized — HTML behind from a prior export run.

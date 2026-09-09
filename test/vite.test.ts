@@ -43,9 +43,11 @@ describe("createViteConfig", () => {
         expect(result).not.toBeNull();
         const keys = Object.keys(result.input).sort();
         expect(keys).toEqual([
+            "test/fixtures/vite-app-nested/auth/login/LoginForm.tsx",
             "test/fixtures/vite-app-nested/auth/login/index.tsx",
             "test/fixtures/vite-app/page1.tsx",
             "test/fixtures/vite-app/sub/index.tsx",
+            "test/fixtures/vite-app/sub2/other.tsx",
         ]);
     });
 
@@ -53,7 +55,11 @@ describe("createViteConfig", () => {
         const { plugin } = await getHydrationPlugin({ appDir: ["test/fixtures/vite-app"] });
         const result = plugin.options({});
         const keys = Object.keys(result.input).sort();
-        expect(keys).toEqual(["test/fixtures/vite-app/page1.tsx", "test/fixtures/vite-app/sub/index.tsx"]);
+        expect(keys).toEqual([
+            "test/fixtures/vite-app/page1.tsx",
+            "test/fixtures/vite-app/sub/index.tsx",
+            "test/fixtures/vite-app/sub2/other.tsx",
+        ]);
     });
 });
 
@@ -69,27 +75,51 @@ describe("rapidrest-hydration plugin", () => {
             expect(plugin.options({})).toBeNull();
         });
 
-        it("Discovers top-level .tsx files, excludes underscore-prefixed files/dirs, includes " +
-            "subdirectory index.tsx one level deep, and excludes subdirectories without an index.tsx.", async () => {
+        it("Discovers top-level .tsx files, excludes underscore-prefixed files/dirs, and includes " +
+            "nested .tsx files (index or otherwise) at any depth.", async () => {
             const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app" });
             const result = plugin.options({});
             expect(result).not.toBeNull();
             const keys = Object.keys(result.input).sort();
-            expect(keys).toEqual(["test/fixtures/vite-app/page1.tsx", "test/fixtures/vite-app/sub/index.tsx"]);
+            expect(keys).toEqual([
+                "test/fixtures/vite-app/page1.tsx",
+                "test/fixtures/vite-app/sub/index.tsx",
+                "test/fixtures/vite-app/sub2/other.tsx",
+            ]);
             for (const key of keys) {
                 expect(result.input[key]).toBe(`\0rapidrest-entry:${key}`);
             }
         });
 
-        it("Discovers index.tsx at arbitrary nesting depth (regression: previously only 1 level deep " +
-            "was scanned, so e.g. auth/login/index.tsx was silently skipped), while still excluding " +
-            "non-index files and underscore-prefixed directories at any depth.", async () => {
+        it("Discovers .tsx files (index or otherwise) at arbitrary nesting depth, while still " +
+            "excluding underscore-prefixed directories at any depth.", async () => {
             const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app-nested" });
             const result = plugin.options({});
             expect(result).not.toBeNull();
             const keys = Object.keys(result.input).sort();
-            expect(keys).toEqual(["test/fixtures/vite-app-nested/auth/login/index.tsx"]);
-            expect(result.input[keys[0]]).toBe(`\0rapidrest-entry:${keys[0]}`);
+            expect(keys).toEqual([
+                "test/fixtures/vite-app-nested/auth/login/LoginForm.tsx",
+                "test/fixtures/vite-app-nested/auth/login/index.tsx",
+            ]);
+            for (const key of keys) {
+                expect(result.input[key]).toBe(`\0rapidrest-entry:${key}`);
+            }
+        });
+
+        it("Discovers a bracketed dynamic-segment leaf file as a normal entry — bracket " +
+            "characters in the entry key/virtual id round-trip through Rollup's input map " +
+            "without special-casing.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app-dynamic" });
+            const result = plugin.options({});
+            expect(result).not.toBeNull();
+            const keys = Object.keys(result.input).sort();
+            expect(keys).toEqual([
+                "test/fixtures/vite-app-dynamic/pets/[id].tsx",
+                "test/fixtures/vite-app-dynamic/pets/featured.tsx",
+            ]);
+            for (const key of keys) {
+                expect(result.input[key]).toBe(`\0rapidrest-entry:${key}`);
+            }
         });
 
         it("Merges with an existing string rollup input.", async () => {

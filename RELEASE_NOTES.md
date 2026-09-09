@@ -1,5 +1,24 @@
 # Release Notes
 
+## Unreleased
+
+* Added support for dynamic route segments (e.g. `app/pets/[id].tsx` or `app/pets/[id]/index.tsx`
+  serving `GET /pets/:id`), with the captured value exposed via `req.params`/`props.params`
+* Added `:name` dynamic-path support to `@ReactService`, so dynamic pages can use DI-backed data
+  fetching the same way static pages do
+* Added a `dynamicRoutes` field to `exportStaticSite()`'s result, reporting discovered
+  dynamic-route templates that aren't auto-crawled — supply concrete instances via `paths`/
+  `StaticExportApp.paths` to include them in a static export
+* Fixed file-based routing to discover nested, non-index page files at any depth (previously only
+  a top-level `.tsx` file or a nested `index.tsx` was discovered for hydration entries and static
+  export; other nested files rendered fine over HTTP but were silently missing from both) — any
+  non-`_`-prefixed `.tsx` file at any depth is now a page
+* **Breaking:** a nested `.tsx` file that isn't named `index.tsx` is no longer silently excluded —
+  it is now its own route. A non-page component colocated under `appDir` must be moved under an
+  `_`-prefixed file or directory name
+* **Breaking:** `ReactRoute.resolveAppFile()` (protected) now returns
+  `{ file: string; params: Record<string, string> } | null` instead of `string | null`
+
 ## v1.1.0
 
 * Added asset MIME types: webp, avif, jfif

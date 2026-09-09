@@ -16,9 +16,18 @@ describe("discoverRoutes", () => {
         expect(discoverRoutes("test/fixtures/does-not-exist")).toEqual([]);
     });
 
-    it("Discovers page routes including nested index routes, excluding underscore-prefixed pages.", () => {
+    it("Discovers page routes including nested index routes and dynamic-segment templates, " +
+        "excluding underscore-prefixed pages.", () => {
         const result = discoverRoutes("test/app").sort();
-        expect(result).toEqual(["/", "/auth/login", "/di-pets", "/pets"]);
+        expect(result).toEqual([
+            "/",
+            "/auth/login",
+            "/di-pets",
+            "/pets",
+            "/pets/:id",
+            "/pets/:id/reviews/:reviewId",
+            "/pets/featured",
+        ]);
     });
 
     it("Deduplicates a route served by both a top-level file and a nested index.tsx.", () => {
@@ -65,7 +74,17 @@ describe("exportStaticSite against a real server", () => {
         });
 
         expect(result.errors).toEqual([]);
-        expect(result.pages.map((p) => p.path).sort()).toEqual(["/", "/auth/login", "/di-pets", "/pets"]);
+        expect(result.pages.map((p) => p.path).sort()).toEqual([
+            "/",
+            "/auth/login",
+            "/di-pets",
+            "/pets",
+            "/pets/featured",
+        ]);
+        // The dynamic-segment templates under test/app/pets/ aren't crawlable literal URLs —
+        // reported separately instead (see the "exportStaticSite dynamic routes" describe below
+        // for dedicated coverage of that split).
+        expect(result.dynamicRoutes.map((r) => r.path).sort()).toEqual(["/pets/:id", "/pets/:id/reviews/:reviewId"]);
         for (const page of result.pages) {
             expect(page.status).toBe(200);
             expect(fs.existsSync(page.outFile)).toBe(true);
@@ -107,7 +126,7 @@ describe("exportStaticSite against a real server", () => {
         });
 
         const paths = result.pages.map((p) => p.path).sort();
-        expect(paths).toEqual(["/", "/di-pets"]);
+        expect(paths).toEqual(["/", "/di-pets", "/pets/featured"]);
         expect(fs.existsSync(path.join(tmpDir, "pets", "index.html"))).toBe(false);
         expect(fs.existsSync(path.join(tmpDir, "auth", "login", "index.html"))).toBe(false);
     });
@@ -216,7 +235,7 @@ describe("exportStaticSite against a real server", () => {
             notFound: false,
             concurrency: 1,
         });
-        expect(result.pages.length).toBe(4);
+        expect(result.pages.length).toBe(5);
     });
 });
 
@@ -315,6 +334,87 @@ describe("exportStaticSite edge cases", () => {
     });
 });
 
+describe("exportStaticSite dynamic routes", () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-static-export-dynamic-"));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function mockFetch() {
+        return vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
+            if (String(url).includes("__rapidrest_static_export_404_probe__")) {
+                return new Response("<html>NotFound</html>", { status: 404 });
+            }
+            return new Response("<html>Page</html>", { status: 200 });
+        });
+    }
+
+    it("Crawls only the literal discovered route, reporting the dynamic template separately " +
+        "instead of fetching it as a literal (and incorrect) URL.", async () => {
+        const fetchSpy = mockFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                appDir: "test/fixtures/vite-app-dynamic",
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+            });
+
+            expect(result.pages.map((p) => p.path)).toEqual(["/pets/featured"]);
+            expect(result.dynamicRoutes).toEqual([{ path: "/pets/:id" }]);
+            const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+            expect(urls.some((u) => u.includes(":id"))).toBe(false);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Crawls a dynamic route normally when a concrete instance is supplied via paths, and " +
+        "that instance does not itself appear in dynamicRoutes — only the raw template does.", async () => {
+        const fetchSpy = mockFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                appDir: "test/fixtures/vite-app-dynamic",
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                paths: ["/pets/1"],
+            });
+
+            expect(result.pages.map((p) => p.path).sort()).toEqual(["/pets/1", "/pets/featured"]);
+            expect(result.dynamicRoutes).toEqual([{ path: "/pets/:id" }]);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+
+    it("Does not report an excluded dynamic template in dynamicRoutes — it was deliberately " +
+        "opted out, not merely left unconcretized.", async () => {
+        const fetchSpy = mockFetch();
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                appDir: "test/fixtures/vite-app-dynamic",
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+                exclude: ["/pets/:id"],
+            });
+
+            expect(result.dynamicRoutes).toEqual([]);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
+});
+
 describe("exportStaticSite outDir safety guard", () => {
     let tmpDir: string;
 
@@ -397,7 +497,13 @@ describe("exportStaticSite multi-app (apps option)", () => {
             });
 
             expect(result.errors).toEqual([]);
-            expect(result.pages.map((p) => p.path).sort()).toEqual(["/admin/auth/login", "/page1", "/sub"]);
+            expect(result.pages.map((p) => p.path).sort()).toEqual([
+                "/admin/auth/login",
+                "/admin/auth/login/LoginForm",
+                "/page1",
+                "/sub",
+                "/sub2/other",
+            ]);
 
             expect(fs.readFileSync(path.join(tmpDir, "page1", "index.html"), "utf-8")).toContain("WWW");
             expect(fs.readFileSync(path.join(tmpDir, "sub", "index.html"), "utf-8")).toContain("WWW");
@@ -464,7 +570,11 @@ describe("exportStaticSite multi-app (apps option)", () => {
                 apps: [{ appDir: "test/fixtures/vite-app", routePrefix: "/admin" }],
             });
 
-            expect(result.pages.map((p) => p.path).sort()).toEqual(["/admin/page1", "/admin/sub"]);
+            expect(result.pages.map((p) => p.path).sort()).toEqual([
+                "/admin/page1",
+                "/admin/sub",
+                "/admin/sub2/other",
+            ]);
             expect(fs.existsSync(path.join(tmpDir, "admin", "page1", "index.html"))).toBe(true);
             // Confirms this differs from the single-app shorthand, which never prefixes output.
             expect(fs.existsSync(path.join(tmpDir, "page1", "index.html"))).toBe(false);
@@ -484,7 +594,7 @@ describe("exportStaticSite multi-app (apps option)", () => {
                 apps: [{ appDir: "test/fixtures/vite-app" }], // routePrefix omitted entirely
             });
 
-            expect(result.pages.map((p) => p.path).sort()).toEqual(["/page1", "/sub"]);
+            expect(result.pages.map((p) => p.path).sort()).toEqual(["/page1", "/sub", "/sub2/other"]);
             const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
             expect(urls).toContain("http://127.0.0.1:1/__rapidrest_static_export_404_probe__");
         } finally {
@@ -526,7 +636,13 @@ describe("exportStaticSite multi-app (apps option)", () => {
             });
 
             const paths = result.pages.map((p) => p.path).sort();
-            expect(paths).toEqual(["/admin/auth/login", "/extra", "/sub"]);
+            expect(paths).toEqual([
+                "/admin/auth/login",
+                "/admin/auth/login/LoginForm",
+                "/extra",
+                "/sub",
+                "/sub2/other",
+            ]);
         } finally {
             fetchSpy.mockRestore();
         }

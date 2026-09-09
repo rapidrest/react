@@ -20,22 +20,53 @@ Keep entries terse — this is a reference, not a transcript.
   races with no concrete external trigger path. Every finding should be able to name the actual
   HTTP route/method or WS message type that reaches the code in question.
 
-- **Commit discipline.** Don't `git commit` unless explicitly asked, even after a full
-  review-and-fix cycle with passing tests. Leave changes staged/unstaged and say so.
+- **Commit discipline.** Don't `git commit` unless explicitly asked for *that specific piece of
+  work*. An autonomous-execution/"commit as you go" approval given for one approved plan (e.g. via
+  plan mode) is scoped to that plan only — it does not carry forward to later, separate requests in
+  the same session, even ones that look similar in kind (a follow-up review-and-fix pass, a
+  refactor, a new feature), and even after a full review-and-fix cycle with passing tests. Default
+  to leaving changes staged/unstaged and saying so; only commit automatically within the exact
+  scope of a plan that was explicitly approved as autonomous. If unsure whether new work falls
+  inside that scope, treat it as outside and ask.
 
-- **Commit message style: concise, one line per task/bug/feature — no verbose prose.** A commit
-  message is a short list of one-line bullets, one per item. Never a paragraph explaining what was
-  done or why for any single item — that belongs in the diff/code comments/NOTES.md, not the commit
-  message. This mirrors JP's standing convention across his other repos.
+- **Commit message style: a flat list of one-line, verb-led items — no summary/title line, no
+  `-`/`*` bullet markers.** This isn't just a style preference — it's dictated by how `release`
+  (`@rapidrest/cli`) actually builds `CHANGELOG.md`. `collectChangelogBullets`/
+  `classifyChangelogLine` (that repo's `src/lib/release.ts`) parse `git log --pretty=format:%B` and
+  treat **every non-blank line of a commit's full message as its own changelog bullet** — there is
+  no subject/body distinction. A conventional "short imperative subject + blank line + prose body"
+  commit therefore leaks one changelog bullet per body sentence, and a `-`/`*`-prefixed line breaks
+  `classifyChangelogLine`'s verb detection (it reads the line's first whitespace-delimited word as
+  the verb; a leading `-` defeats that lookup and the dash leaks into the changelog text as
+  `"- - Added foo"`). Correct format:
+  - No separate summary/title line — if a commit needs an overview, that overview is itself just
+    one more flat line, not a heading distinct from the rest.
+  - No bullet-marker prefix of any kind — write bare lines.
+  - Lead each line with an imperative verb where it fits: `Add`/`Fix`/`Remove` (and `-ing` forms)
+    are recognized and become `Added`/`Fixed`/`Removed` entries; `Configuring`/`Converting`/
+    `Refactoring`/`Updating`/etc. become `Changed`. Anything else still works, defaulting to
+    `Changed` verbatim — see `CHANGELOG_VERB_REWRITES` in that repo's `src/lib/release.ts` for the
+    full map.
+  - A blank line before a trailing git trailer (`Co-Authored-By:`, `Signed-off-by:`, etc.) is fine
+    — trailers matching `CHANGELOG_NOISE_PATTERNS` are dropped from the changelog — but nothing
+    else should follow the item list.
+  This mirrors JP's standing convention across his other repos; copy this exact rule verbatim into
+  each sibling repo's own NOTES.md rather than paraphrasing it, since the paraphrase is what caused
+  this to be gotten wrong in the first place (see `@rapidrest/cli`'s own NOTES.md, 2026-09-07 entry,
+  for the full incident writeup and the `CHANGELOG_NOISE_PATTERNS` fix that accompanied it).
 
 - **Static export architecture: crawl the real server over real HTTP, never reimplement
   `ReactRoute`'s rendering.** `exportStaticSite()`/`runStaticExport()` (`src/static.ts`) boot the
   app's actual server (real DI, real config, real `@ReactService`s) and crawl it with `fetch()`,
   writing whatever HTML it actually returns. This is deliberate: the exported output can never
-  diverge from what a live deployment serves, at the cost of route *discovery* (which pages
-  exist) being a separate, independently-maintained convention (`appDirScan.ts`/`fileToRoute()`)
-  from *resolution* (`ReactRoute.resolveAppFile()`) — the two can drift if the file-resolution
-  convention ever changes without a matching update to discovery. Known, accepted gap.
+  diverge from what a live deployment serves. Route *discovery* (`appDirScan.ts`'s
+  `scanAppDirPages()`/`fileToRouteTemplate()`) and *resolution* (`ReactRoute.resolveAppFile()`)
+  used to be two independently-maintained conventions that could drift — closed in the 2026-09-09
+  dynamic-routes session by moving the file<->route convention (bracket syntax included) into
+  `appDirScan.ts` as the one canonical place it's defined; `resolveAppFile()`'s own filesystem walk
+  still exists separately (it needs live suffix/dual-root probing that a precomputed route list
+  doesn't fit — see that session's log entry), but the *naming convention* itself no longer has two
+  sources of truth.
 
 - **`appDir` convention: `"app"` default for a single app, `"apps/<name>"` for multi-app.**
   `ReactRoute`, `createViteConfig()`, and `exportStaticSite()` all default `appDir` to `"app"`.
@@ -155,3 +186,61 @@ Keep entries terse — this is a reference, not a transcript.
     this session's own hunks via `git add -p`, verified via `git diff --cached` before committing).
     That work is still sitting unstaged/uncommitted in the working tree for whoever's doing it to
     pick back up.
+
+- **2026-09-09** — Two related, downstream-reported routing defects fixed together as a breaking
+  change slated for a major version bump (explicit user direction: don't preserve backward
+  compatibility for this work).
+  - **Dynamic route segments** (`app/pets/[id].tsx` -> `GET /pets/:id`) — previously entirely
+    unsupported, a documented gap in `README.md`. New shared module `src/routeMatch.ts`
+    (`parseDynamicSegmentName()`, `matchRouteTemplate()`) — pure, filesystem-free, used by page
+    resolution's bracket fallback, `@ReactService`'s new template-matching capability, and
+    `appDirScan.ts`'s file-to-route-template conversion. `ReactRoute.resolveAppFile()` changed
+    signature from `Promise<string | null>` to `Promise<{file, params} | null>` (breaking — all 4
+    call sites and the test helper updated) and its flat suffix-probe became a segment-by-segment
+    directory walk: literal match wins at each level; only on a literal miss does a single
+    `[name]`-bracketed sibling get tried. **No backtracking** — a literal directory that dead-ends
+    fails outright rather than retrying a sibling bracket. **No catch-all/optional segments**
+    (`[...slug]`, `[[id]]`) — no precedent anywhere in RapidREST's routing for representing that in
+    `req.params` (confirmed via `service-core`'s `CRUDRoute`/`MiddlewareChain.extractParamNames()`:
+    single `:name` token per segment, `req.params` always `Record<string,string>`). Ambiguous
+    sibling brackets (`[id]` + `[slug]` in the same dir) are a developer error: deterministic
+    lexicographic tie-break, `logger.warn` on every request that hits it (not one-time — it's a
+    static misconfiguration that reproduces every time). `@ReactService` paths may now contain
+    `:name` tokens too, matched via the same `matchRouteTemplate()`, giving dynamic pages DI-backed
+    data fetching; the service template's own captured values are discarded, `req.params` (from the
+    page resolver) is the single source of truth. Considered and rejected a fully unified
+    precomputed route table (would have unified discovery/resolution/services around one list) —
+    `resolveAppFile()`'s real algorithm is a per-final-segment, dual-root, ordered-suffix probe that
+    a single table would either have to reimplement anyway or regress dev-mode's per-request
+    filesystem cost from O(path depth) to O(whole app tree); extending the walk in place plus a
+    small shared matching module got the same practical benefits without that cost.
+  - **Nested non-index pages were invisible to discovery** — independent defect, same area,
+    downstream-reported as "nested paths do not work." `appDirScan.ts`'s `scanAppDirPages()` only
+    treated a `.tsx` file as a page if it was top-level or literally named `index.tsx`; a nested
+    non-index file (`apps/www/sub1/page1.tsx`) rendered fine over plain HTTP (`resolveAppFile()`
+    never had this restriction) but was silently excluded from Vite hydration-entry generation and
+    static-export discovery — a hydrate-enabled nested page would throw ("no matching manifest
+    entry") and static export would never crawl it. Fixed by removing the top-level-only/index-only
+    restriction: any non-`_`-prefixed `.tsx` file, at any depth, is now a page — matching the rule
+    that already silently applied at the top level. **Breaking convention change**: a shared/helper
+    component previously colocated as a nested non-index, non-underscore `.tsx` file (the only way
+    that was safe before this fix) now becomes its own route — must move under an `_`-prefixed file
+    or directory name. This one change also made the dynamic-route bracket-leaf discovery
+    carve-out unnecessary (a bracket leaf is just an ordinary nested `.tsx` file under the new
+    rule).
+  - Both fixes updated a wide, mechanical ripple of pre-existing hardcoded test assertions across
+    `test/appDirScan.test.ts`, `test/vite.test.ts`, and `test/static.test.ts` (fixtures
+    `test/fixtures/vite-app/sub2/other.tsx` and `vite-app-nested/auth/login/LoginForm.tsx` flipped
+    from deliberately-excluded to expected-included) — flagged here since a future session touching
+    those fixtures should expect them to be live pages, not dead negative-test fixtures.
+  - `StaticExportResult` gained a `dynamicRoutes: {path}[]` field — discovered `:name`-templated
+    routes are never auto-crawled (no way to enumerate concrete values from the filesystem alone)
+    and are reported here instead; supply concrete instances via the existing `paths`/
+    `StaticExportApp.paths` option to include them in an export.
+  - Full session: 100% coverage maintained (238 tests, 1 pre-existing skip), `yarn lint` clean,
+    all four `tsc` build targets (main/client/vite/cli) clean. Verified real end-to-end (not just
+    unit tests) via the existing `request()`-helper-based real-HTTP test suites in
+    `test/ReactRoute.test.ts` and `test/static.test.ts`'s real-server describe block (both actually
+    exercise a live `Server` instance in this environment — an earlier apparent "real-HTTP tests
+    are network-sandboxed here" read turned out to be wrong/transient, not a standing constraint;
+    don't assume that limitation in a future session without re-checking).

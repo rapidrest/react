@@ -16,8 +16,12 @@ For complete documentation please visit [RapidREST.dev](https://rapidrest.dev).
 
 **File-Based Page Routing**
 
-- Convention-based routing from an `app/` directory (`app/pets.tsx` and `app/pets/index.tsx`
-  both serve `GET /pets`)
+- Convention-based routing from an `app/` directory: any non-`_`-prefixed `.tsx` file, at any
+  depth, is a page (`app/pets.tsx` and `app/pets/index.tsx` both serve `GET /pets`); colocate a
+  shared/helper component under an `_`-prefixed file or directory name to keep it from becoming
+  its own route
+- Dynamic route segments — `app/pets/[id].tsx` (or `app/pets/[id]/index.tsx`) serves
+  `GET /pets/:id`, with the captured value available as `req.params.id`/`props.params.id`
 - `app/_layout.tsx` — a single global HTML wrapper applied to every page
 - Default error page rendering. (e.g. `app/_404.tsx`, `app/_500.tsx`)
 - Mount the router at any prefix (`@Route("/app/*")`, `@Route("/*")`, etc.) — page resolution is
@@ -146,6 +150,61 @@ export default class PetsService {
 }
 ```
 
+### Dynamic Routes
+
+A bracketed file or directory name captures a single URL segment as a string, matching the
+`:name` convention used elsewhere in RapidREST (e.g. `CRUDRoute`'s `@Get("/:id")`):
+
+```
+app/
+  pets/
+    [id].tsx           # GET /pets/:id
+    [id]/index.tsx      # same route — either form works, like the static index convention
+    [id]/
+      reviews/
+        [reviewId].tsx  # GET /pets/:id/reviews/:reviewId
+```
+
+```tsx
+// app/pets/[id].tsx
+import React from "react";
+
+export default function PetDetail({ params }: { params: { id: string } }) {
+    return <h1>Pet #{params.id}</h1>;
+}
+
+export async function fetchProps(req) {
+    return { pet: await fetch(`https://api.example.com/pets/${req.params.id}`).then((r) => r.json()) };
+}
+```
+
+`@ReactService` paths may also contain `:name` tokens, so dynamic pages get the same DI-backed
+data fetching as static ones:
+
+```ts
+@ReactService("/pets/:id")
+export default class PetService {
+    @Inject(RepoUtils, { name: Pet.name, args: [Pet] })
+    private petRepo?: RepoUtils<Pet>;
+
+    public async fetchProps(req) {
+        return { pet: await this.petRepo?.findById(req.params.id) };
+    }
+}
+```
+
+A few rules keep this predictable:
+
+- **Static beats dynamic.** `app/pets/featured.tsx` wins over `app/pets/[id].tsx` for the literal
+  request `/pets/featured`.
+- **No backtracking.** Once a literal directory is matched at a given level, a resolution failure
+  further down that path fails outright — it never retries a sibling bracket at that level.
+- **One dynamic segment per directory level.** Sibling brackets (`[id]` and `[slug]` in the same
+  directory) are a misconfiguration; the lexicographically-smallest name wins and a warning is
+  logged every time a request hits the ambiguity.
+- **No catch-all or optional segments** (no `[...slug]`, no `[[id]]`) — matching the rest of
+  RapidREST's routing, which only ever supports a single `:name` token per path segment.
+
 ### Client Hydration (optional)
 
 Enable hydration on a route, and generate a matching Vite build:
@@ -194,10 +253,12 @@ export default createViteConfig({ appDir: ["apps/www", "apps/admin"] });
 
 ## Static Export
 
-Every page under `app/` is already file-enumerable — there are no dynamic/parameterized routes
-(e.g. `pets/[id].tsx`) — so a whole `@rapidrest/react` app can be crawled once and exported as a
-plain static site: HTML, CSS and JS, deployable to any static host (S3, Netlify, GitHub Pages, a
-CDN) with no server needed at request time.
+Every static page under `app/` is file-enumerable, so a whole `@rapidrest/react` app can be
+crawled once and exported as a plain static site: HTML, CSS and JS, deployable to any static host
+(S3, Netlify, GitHub Pages, a CDN) with no server needed at request time. A
+[dynamic route](#dynamic-routes) (`pets/[id].tsx`) is discovered as its `:id`-templated form and
+reported via `result.dynamicRoutes` rather than crawled — see "Known limitations" below for how
+to include concrete instances of it.
 
 Rather than reimplementing `ReactRoute`'s rendering logic, export boots your *real* server (real
 DI, real config, real `@ReactService`s) and crawls it over real HTTP, so the exported output can
@@ -261,16 +322,16 @@ static file server), plus `dist/export/404.html` for static-host fallback routin
 
 **Known limitations:**
 
-- Route discovery uses the same file convention as hydration entry points (top-level `.tsx` +
-  nested `index.tsx`). A page served from an unconventional nested non-index file won't be
-  auto-discovered — pass it explicitly via `paths`.
 - Hydration asset URLs are always root-absolute, so the exported site only works correctly when
   served from `/` — the same pre-existing constraint `hydrate` already has in a live deployment.
 - Props are frozen at export time (like Next.js's static export): pages whose `fetchProps`/
   `@ReactService` depend on per-request or authenticated state will bake in whatever an
   unauthenticated crawl request renders. Use `exclude` to skip personalized pages entirely.
-- There is no support for dynamic/parameterized routes (`pets/[id].tsx`) — `ReactRoute` doesn't
-  have that concept today, so there's nothing to enumerate.
+- A [dynamic route](#dynamic-routes) (`pets/[id].tsx`) is discovered as its template
+  (`/pets/:id`) but never auto-crawled — there's no way to enumerate concrete values from the
+  filesystem alone. It's reported via `result.dynamicRoutes` instead; supply concrete instances
+  via `paths`/`StaticExportApp.paths` (e.g. `paths: ["/pets/1", "/pets/2"]`) to include them in
+  the export, or `exclude` it entirely if it shouldn't be statically baked at all.
 
 ## Requirements
 

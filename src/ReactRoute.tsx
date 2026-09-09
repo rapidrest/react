@@ -12,6 +12,7 @@ import { HttpRequest, HttpResponse, ObjectFactory, RouteDecorators } from "@rapi
 import React, { ComponentType, PropsWithChildren } from "react";
 import { renderToString } from "react-dom/server";
 import { ObjectDecorators, RedisStore } from "@rapidrest/core";
+import { matchRouteTemplate, parseDynamicSegmentName } from "./routeMatch.js";
 
 const { Config, Init, Inject, Logger } = ObjectDecorators;
 const { ContentType, Get, Request, Response } = RouteDecorators;
@@ -77,12 +78,16 @@ interface CacheEntry {
  * Base class for HTTP routes that serve React pages from the `app/` directory.
  *
  * Convention-based page routing:
- *  - `app/layout.tsx` — global HTML wrapper (loaded once, required)
+ *  - `app/_layout.tsx` — global HTML wrapper (loaded once, required)
  *  - `app/_404.tsx`    — 404 error page (optional)
  *  - `app/_500.tsx`    — 500 error page (optional)
  *  - `app/pets.tsx`    — serves GET /pets
  *  - `app/pets/index.tsx` — also serves GET /pets (index convention)
+ *  - `app/pets/[id].tsx` or `app/pets/[id]/index.tsx` — serves GET /pets/:id; the captured value
+ *    is available as `req.params.id` (in `fetchProps`) and `props.params.id` (on the component)
  *  - `app/_styles/`   — CSS assets (imported by layout or page components)
+ *  - Any other non-`_`-prefixed `.tsx` file, at any depth, is a page — colocate a shared/helper
+ *    component under an `_`-prefixed file or directory name to keep it from becoming a route
  *
  * Each page file exports:
  *  - `default`         — React component (required)
@@ -149,7 +154,7 @@ export class ReactRoute {
      * built, so repeat fs work per request is pure waste; dev mode always re-resolves so newly
      * added/removed page files are picked up immediately).
      */
-    private resolvedFileCache: Map<string, string | null> = new Map();
+    private resolvedFileCache: Map<string, { file: string; params: Record<string, string> } | null> = new Map();
 
     /**
      * In-flight render promises keyed by cache key, so concurrent requests for the same cold
@@ -182,9 +187,17 @@ export class ReactRoute {
     private routePrefix: string = "";
 
     /**
-     * A map of paths to service class instances to use when fetching props during page rendering.
+     * A map of exact, literal paths to service class instances to use when fetching props during
+     * page rendering.
      */
     private services: Map<string, any> = new Map();
+
+    /**
+     * `@ReactService` registrations whose path contains a `:name` token, matched against a
+     * request's `pageSegment` via `matchRouteTemplate()` rather than an exact `Map` lookup.
+     * Checked in registration order; the first matching template wins (see `resolveService()`).
+     */
+    private dynamicServices: { template: string; instance: any }[] = [];
 
     @Init
     protected async init() {
@@ -240,11 +253,32 @@ export class ReactRoute {
                         const pageSegment = this.routePrefix && rpath.startsWith(this.routePrefix)
                             ? rpath.slice(this.routePrefix.length) || "/"
                             : rpath;
-                        this.services.set(pageSegment, instance);
+                        if (pageSegment.includes(":")) {
+                            this.dynamicServices.push({ template: pageSegment, instance });
+                        } else {
+                            this.services.set(pageSegment, instance);
+                        }
                     }
                 }
             }
         });
+    }
+
+    /**
+     * Resolves the `@ReactService` instance (if any) for a page segment: an exact literal match
+     * first, then the first registered dynamic template (`:name`-containing path) that matches.
+     * The template's own captured values are discarded here — `req.params` is already populated
+     * from the *page* resolver's capture in `renderPage()`, which runs first and stays the single
+     * source of truth, so a service's template param names don't strictly need to match the page's
+     * bracket names (though they should, by convention, for `fetchProps` to make sense).
+     */
+    private resolveService(pageSegment: string): any {
+        const exact = this.services.get(pageSegment);
+        if (exact) return exact;
+        for (const { template, instance } of this.dynamicServices) {
+            if (matchRouteTemplate(template, pageSegment) !== null) return instance;
+        }
+        return undefined;
     }
 
     /**
@@ -307,11 +341,21 @@ export class ReactRoute {
     }
 
     /**
-     * Resolve a file in the app directory by trying multiple extensions in order.
-     * Tries .tsx → /index.tsx → .jsx → /index.jsx → .js → /index.js.
-     * In dev mode tsx handles .tsx directly; in production tsc outputs .js.
+     * Resolve a file in the app directory for a URL path segment (e.g. `/pets` or `/pets/123`),
+     * walking one path component at a time. At each directory level a literal name match wins;
+     * only on a literal miss does a `[name]`-bracketed sibling (a dynamic-segment directory or, at
+     * the final segment, a leaf file) get tried, capturing the URL value into `params`. There is no
+     * backtracking: once a literal directory is entered at a level, a subsequent resolution failure
+     * fails outright rather than retrying a sibling bracket at that level.
+     *
+     * At the final segment, tries `.tsx` → `/index.tsx` → `.jsx` → `/index.jsx` → `.js` →
+     * `/index.js` (dev) or `.js` → `/index.js` (production) in order, same as before — this ordering
+     * is now also applied to a bracket-name candidate, treating it exactly like a literal segment.
      */
-    protected async resolveAppFile(appDir: string, segment: string): Promise<string | null> {
+    protected async resolveAppFile(
+        appDir: string,
+        segment: string
+    ): Promise<{ file: string; params: Record<string, string> } | null> {
         const isProduction = process.env.NODE_ENV === "production";
         const cacheKey = `${appDir} ${segment}`;
         if (isProduction) {
@@ -319,21 +363,32 @@ export class ReactRoute {
             if (cached !== undefined) return cached;
         }
 
-        const tryDir = async (dir: string, suffixes: string[]): Promise<string | null> => {
-            const appRoot = path.resolve(process.cwd(), dir);
-            const base = path.resolve(appRoot, segment.replace(/^\//, ""));
-            if (base !== appRoot && !base.startsWith(appRoot + path.sep)) return null;
-            for (const suffix of suffixes) {
-                const full = base + suffix;
-                try {
-                    await fs.promises.access(full, fs.constants.F_OK);
-                    return full;
-                } catch {
-                    // try the next suffix
-                }
+        // Sanitize every path component before any filesystem access — independent of, and in
+        // addition to, the walk's own structural safety (it can only ever descend into a real
+        // `readdir()`-returned name or a sanitized literal), this guards both the segments used to
+        // build paths and the values captured into `params`.
+        const parts: string[] = [];
+        let malformed = false;
+        for (const rawPart of segment.split("/")) {
+            if (!rawPart) continue;
+            let part: string;
+            try {
+                part = decodeURIComponent(rawPart);
+            } catch {
+                malformed = true;
+                break;
             }
+            if (part === "." || part === "..") {
+                malformed = true;
+                break;
+            }
+            parts.push(part);
+        }
+
+        if (malformed) {
+            if (isProduction) this.resolvedFileCache.set(cacheKey, null);
             return null;
-        };
+        }
 
         // Detect whether we're running under a TypeScript transformer (tsx/ts-node),
         // or a test runner that transforms TS/JSX itself (Vitest, Jest). In either case
@@ -348,16 +403,144 @@ export class ReactRoute {
             process.env.VITEST === "true" ||
             !!process.env.JEST_WORKER_ID;
 
+        const suffixes = hasTsxContext
+            ? [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]
+            : [".js", "/index.js"];
+
         const result = !hasTsxContext
-            ? (await tryDir(appDir, [".js", "/index.js"])) ??
-              (await tryDir(path.join("dist", appDir), [".js", "/index.js"]))
+            ? (await this.walkAppDir(appDir, parts, suffixes)) ??
+              (await this.walkAppDir(path.join("dist", appDir), parts, suffixes))
             // In dev (tsx) all TypeScript extensions are handled natively.
-            : await tryDir(appDir, [".tsx", "/index.tsx", ".jsx", "/index.jsx", ".js", "/index.js"]);
+            : await this.walkAppDir(appDir, parts, suffixes);
 
         if (isProduction) {
             this.resolvedFileCache.set(cacheKey, result);
         }
         return result;
+    }
+
+    /** `fs.promises.access(F_OK)` as a boolean, swallowing the not-found/EACCES error. */
+    private async fileExists(p: string): Promise<boolean> {
+        try {
+            await fs.promises.access(p, fs.constants.F_OK);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /** Whether `p` exists and is a directory, false (never throws) otherwise. */
+    private async isDirectory(p: string): Promise<boolean> {
+        try {
+            return (await fs.promises.stat(p)).isDirectory();
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Scans `dir` for `[name]`-bracketed dynamic-segment candidates and returns the winning name,
+     * or `null` if there are none. Bracket directories are always considered; bracket-named files
+     * matching one of `fileExts` are additionally considered when `fileExts` is non-null (only
+     * meaningful at the final path segment — intermediate segments must be directories). On
+     * ambiguity (more than one distinct bracket name at this level — a developer misconfiguration,
+     * e.g. sibling `[id]`/`[slug]`), logs a warning on every call (this is a static
+     * misconfiguration that reproduces on every matching request, worth surfacing repeatedly) and
+     * deterministically picks the lexicographically-smallest name.
+     */
+    private async findDynamicSegmentName(dir: string, fileExts: string[] | null): Promise<string | null> {
+        let entries: fs.Dirent[];
+        try {
+            entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch {
+            return null;
+        }
+
+        const names = new Set<string>();
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                const name = parseDynamicSegmentName(entry.name);
+                if (name) names.add(name);
+            } else if (fileExts && entry.isFile()) {
+                for (const ext of fileExts) {
+                    if (entry.name.endsWith(ext)) {
+                        const name = parseDynamicSegmentName(entry.name.slice(0, -ext.length));
+                        if (name) names.add(name);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (names.size === 0) return null;
+        const sorted = [...names].sort();
+        if (sorted.length > 1) {
+            this.logger.warn(
+                `[ReactRoute] Ambiguous dynamic route segments in "${dir}": ` +
+                `${sorted.map((n) => `[${n}]`).join(", ")}. Using "[${sorted[0]}]".`
+            );
+        }
+        return sorted[0];
+    }
+
+    /**
+     * Resolves `parts` (URL path components, already sanitized) against the filesystem rooted at
+     * `root`, trying `suffixes` (in order) at the final segment — see `resolveAppFile()`'s doc
+     * comment for the full matching/precedence semantics.
+     */
+    private async walkAppDir(
+        root: string,
+        parts: string[],
+        suffixes: string[]
+    ): Promise<{ file: string; params: Record<string, string> } | null> {
+        const appRoot = path.resolve(process.cwd(), root);
+
+        if (parts.length === 0) {
+            for (const suffix of suffixes) {
+                const full = appRoot + suffix;
+                if (await this.fileExists(full)) return { file: full, params: {} };
+            }
+            return null;
+        }
+
+        const params: Record<string, string> = {};
+        let currentDir = appRoot;
+
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            const isLast = i === parts.length - 1;
+
+            if (!isLast) {
+                const literalDir = path.join(currentDir, part);
+                if (await this.isDirectory(literalDir)) {
+                    currentDir = literalDir;
+                    continue;
+                }
+                const bracketName = await this.findDynamicSegmentName(currentDir, null);
+                if (!bracketName) return null;
+                params[bracketName] = part;
+                currentDir = path.join(currentDir, `[${bracketName}]`);
+                continue;
+            }
+
+            for (const suffix of suffixes) {
+                const full = path.join(currentDir, part) + suffix;
+                if (await this.fileExists(full)) return { file: full, params };
+            }
+
+            const fileExts = suffixes.filter((s) => !s.startsWith("/"));
+            const bracketName = await this.findDynamicSegmentName(currentDir, fileExts);
+            if (!bracketName) return null;
+            const bracketParams = { ...params, [bracketName]: part };
+            for (const suffix of suffixes) {
+                const full = path.join(currentDir, `[${bracketName}]`) + suffix;
+                if (await this.fileExists(full)) return { file: full, params: bracketParams };
+            }
+            return null;
+        }
+
+        /* v8 ignore next -- unreachable: the loop always returns on its last (isLast) iteration */
+        return null;
     }
 
     /**
@@ -370,24 +553,33 @@ export class ReactRoute {
     private async renderPage(req: HttpRequest, pageSegment: string): Promise<{ status: number; html: string }> {
         // Lazy-load the global layout on first request
         if (!this.layout) {
-            const layoutPath = await this.resolveAppFile(this.appDir, "_layout");
-            if (layoutPath) {
-                const layoutMod = await import(pathToFileURL(layoutPath).href);
+            const layoutResolved = await this.resolveAppFile(this.appDir, "_layout");
+            if (layoutResolved) {
+                const layoutMod = await import(pathToFileURL(layoutResolved.file).href);
                 this.layout = layoutMod.default;
             }
         }
 
         // Resolve page file — fall back to _404 when path has no matching file
-        let pagePath = await this.resolveAppFile(this.appDir, pageSegment);
+        const resolved = await this.resolveAppFile(this.appDir, pageSegment);
+        let pagePath = resolved?.file ?? null;
+        const dynamicParams = resolved?.params ?? {};
         let httpStatus = 200;
         if (!pagePath) {
-            pagePath = await this.resolveAppFile(this.appDir, "_404");
+            pagePath = (await this.resolveAppFile(this.appDir, "_404"))?.file ?? null;
             httpStatus = 404;
         }
 
         if (!pagePath) {
             return { status: 404, html: "<html><head></head><body><h1>404 Not Found</h1></body></html>" };
         }
+
+        // Dynamic-segment captures become visible both to req.params (so fetchProps overrides —
+        // page, service, route — can read them the same way any other RapidREST route would) and
+        // to the page component's props (below) — merged, not overwritten, since req.params is
+        // always {} coming in from the "/*" wildcard mount today, but a future non-wildcard mount
+        // could set it first.
+        req.params = { ...req.params, ...dynamicParams };
 
         let html: string;
         try {
@@ -396,7 +588,7 @@ export class ReactRoute {
             const pageFetchProps: ((req: HttpRequest) => Promise<any>) | undefined = mod.fetchProps;
 
             // Check to see if there's a react service for this page path
-            const service: any = this.services.get(pageSegment);
+            const service: any = this.resolveService(pageSegment);
 
             // There are three levels of fetching props: Page => Service => Route. These are
             // independent data sources — fetch them concurrently rather than one at a time.
@@ -410,6 +602,7 @@ export class ReactRoute {
             const props = {
                 userUid: req.user?.uid,
                 ...(exposedUser !== undefined ? { user: exposedUser } : {}),
+                params: dynamicParams,
                 ...pageProps,
                 ...serviceProps,
                 ...routeProps,
@@ -439,10 +632,10 @@ export class ReactRoute {
                 ? { name: "Error", message: "Internal Server Error" }
                 : err;
 
-            const errorPath = await this.resolveAppFile(this.appDir, "_500");
-            if (errorPath) {
+            const errorResolved = await this.resolveAppFile(this.appDir, "_500");
+            if (errorResolved) {
                 try {
-                    const errMod = await import(pathToFileURL(errorPath).href);
+                    const errMod = await import(pathToFileURL(errorResolved.file).href);
                     const ErrorPage = errMod.default;
                     const Layout = this.layout;
                     html = renderToString(

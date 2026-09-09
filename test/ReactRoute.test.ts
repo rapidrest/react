@@ -58,7 +58,10 @@ class TestableReactRoute extends ReactRoute {
     // value to anchor against, rather than silently relying on the base class's own default.
     protected readonly appDir = "test/app";
 
-    public callResolveAppFile(appDir: string, segment: string): Promise<string | null> {
+    public callResolveAppFile(
+        appDir: string,
+        segment: string
+    ): Promise<{ file: string; params: Record<string, string> } | null> {
         return this.resolveAppFile(appDir, segment);
     }
 
@@ -168,6 +171,28 @@ describe("ReactRoute Tests", () => {
         expect(result.body).toContain("<li>Rabbit</li>");
     });
 
+    it("Resolves a dynamic route segment, exposing the captured value via props.params and " +
+        "matching a dynamic @ReactService template for DI-backed data fetching.", async () => {
+        const result = await request(server.getApplication()).get(UI_BASE + "/pets/99");
+        expect(result.status).toBeGreaterThanOrEqual(200);
+        expect(result.status).toBeLessThan(300);
+        expect(result.body).toContain("PetId:99");
+        // fromPage comes from the page's own fetchProps; merge order lets service props win where
+        // both would otherwise collide, but the two are actually independent keys here.
+        expect(result.body).toContain("FromPage:true");
+        expect(result.body).toContain("FromService:true");
+        expect(result.body).toContain("ServiceSawId:99");
+    });
+
+    it("Resolves nested dynamic route segments end to end.", async () => {
+        const result = await request(server.getApplication()).get(UI_BASE + "/pets/1/reviews/2");
+        expect(result.status).toBeGreaterThanOrEqual(200);
+        expect(result.status).toBeLessThan(300);
+        expect(result.body).toContain("PetId:1");
+        expect(result.body).toContain("ReviewId:2");
+    });
+
+
     it("Returns 404 for a path traversal attempt via the HTTP layer and never leaks file contents.", async () => {
         const result = await request(server.getApplication()).get(UI_BASE + "/../../../../src/ReactRoute");
         expect(result.status).toBe(404);
@@ -224,13 +249,14 @@ describe("ReactRoute.resolveAppFile Tests", () => {
     it("Resolves a page file that exists within the app directory.", async () => {
         const result = await route.callResolveAppFile("test/app", "/index");
         expect(result).not.toBeNull();
-        expect(result).toMatch(/index\.tsx$/);
+        expect(result?.file).toMatch(/index\.tsx$/);
+        expect(result?.params).toEqual({});
     });
 
     it("Resolves a nested page file using the index convention.", async () => {
         const result = await route.callResolveAppFile("test/app", "/auth/login");
         expect(result).not.toBeNull();
-        expect(result).toMatch(/auth[\\/]login[\\/]index\.tsx$/);
+        expect(result?.file).toMatch(/auth[\\/]login[\\/]index\.tsx$/);
     });
 
     it("Returns null for a segment with no matching file.", async () => {
@@ -239,7 +265,8 @@ describe("ReactRoute.resolveAppFile Tests", () => {
     });
 
     it("Returns null for a path traversal attempt that escapes the app directory.", async () => {
-        // Without the containment check this would resolve to the real src/ReactRoute.tsx file.
+        // Without the up-front "."/".." rejection this would resolve to the real
+        // src/ReactRoute.tsx file.
         const result = await route.callResolveAppFile("test/app", "/../../src/ReactRoute");
         expect(result).toBeNull();
     });
@@ -255,10 +282,77 @@ describe("ReactRoute.resolveAppFile Tests", () => {
         expect(result).toBeNull();
     });
 
-    it("Still resolves segments that legitimately stay within the app directory after normalization.", async () => {
+    it("Returns null for a '..' segment even when it would resolve back inside the app " +
+        "directory — every path component is rejected up front, independent of where it " +
+        "would ultimately land.", async () => {
         const result = await route.callResolveAppFile("test/app", "/../app/index");
+        expect(result).toBeNull();
+    });
+
+    it("Returns null for malformed percent-encoding in a path segment.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/%E0%A4%A");
+        expect(result).toBeNull();
+    });
+
+    it("Caches a malformed-segment null result in production too, not just a genuine miss.", async () => {
+        const original = process.env.NODE_ENV;
+        try {
+            process.env.NODE_ENV = "production";
+            const result = await route.callResolveAppFile("test/app", "/../app/index");
+            expect(result).toBeNull();
+        } finally {
+            process.env.NODE_ENV = original;
+        }
+    });
+
+    it("Resolves a single dynamic segment leaf file, capturing its value into params.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/pets/123");
         expect(result).not.toBeNull();
-        expect(result).toMatch(/index\.tsx$/);
+        expect(result?.file).toMatch(/pets[\\/]\[id\]\.tsx$/);
+        expect(result?.params).toEqual({ id: "123" });
+    });
+
+    it("Resolves nested dynamic segments, capturing every value into params.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/pets/123/reviews/456");
+        expect(result).not.toBeNull();
+        expect(result?.file).toMatch(/reviews[\\/]\[reviewId\]\.tsx$/);
+        expect(result?.params).toEqual({ id: "123", reviewId: "456" });
+    });
+
+    it("Prefers a literal sibling over a dynamic segment for a matching request.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/pets/featured");
+        expect(result).not.toBeNull();
+        expect(result?.file).toMatch(/pets[\\/]featured\.tsx$/);
+        expect(result?.params).toEqual({});
+    });
+
+    it("Does not backtrack: a literal directory that exists but dead-ends fails resolution " +
+        "outright, even when a sibling [id] bracket would have matched the full path.", async () => {
+        const result = await route.callResolveAppFile("test/fixtures/no-backtrack", "/items/static/detail");
+        expect(result).toBeNull();
+    });
+
+    it("The sibling bracket path (proven above to not be reached via backtracking) resolves " +
+        "correctly when actually requested directly.", async () => {
+        const result = await route.callResolveAppFile("test/fixtures/no-backtrack", "/items/anything/detail");
+        expect(result).not.toBeNull();
+        expect(result?.params).toEqual({ id: "anything" });
+    });
+
+    it("Returns null (not a throw) when a bracket name is found but none of its candidate " +
+        "files actually exist (an empty [id] directory with no index file).", async () => {
+        const result = await route.callResolveAppFile("test/fixtures/dynamic-empty-bracket", "/items/anything");
+        expect(result).toBeNull();
+    });
+
+    it("Deterministically picks the lexicographically-smallest bracket name on an ambiguous " +
+        "sibling configuration ([id] vs [slug]), and logs a warning.", async () => {
+        const ambiguousRoute = new TestableReactRoute();
+        const warn = vi.fn();
+        (ambiguousRoute as any).logger = { warn, debug: () => undefined, error: () => undefined };
+        const result = await ambiguousRoute.callResolveAppFile("test/fixtures/dynamic-ambiguous", "/pets/42");
+        expect(result?.params).toEqual({ id: "42" });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("Ambiguous dynamic route segments"));
     });
 });
 
@@ -550,6 +644,14 @@ describe("ReactRoute.hashRequest Tests", () => {
         const a = route.callHashRequest(fakeRequest({ path: "/search", query: undefined }));
         const b = route.callHashRequest(fakeRequest({ path: "/search", query: {} }));
         expect(a).toBe(b);
+    });
+
+    it("Produces different hashes for requests differing only in a dynamic-segment param " +
+        "(confirms distinct param values get distinct production cache keys with no changes " +
+        "needed to hashRequest itself, since it already hashes req.params).", () => {
+        const a = route.callHashRequest(fakeRequest({ path: "/pets/1", params: { id: "1" } }));
+        const b = route.callHashRequest(fakeRequest({ path: "/pets/2", params: { id: "2" } }));
+        expect(a).not.toBe(b);
     });
 });
 
