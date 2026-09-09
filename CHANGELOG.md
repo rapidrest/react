@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.1] - 2026-09-09
+
+### Added
+- Added a regression test reproducing the sanitized-name mismatch against the existing test/app/pets/[id].tsx fixture
+- Added a CHANGELOG entry under Unreleased
+- Added getStaticPaths() support so a page or its matching @ReactService can enumerate concrete instances of a dynamic route for static export
+- Added a gated /__rapidrest__/static-paths endpoint on ReactRoute, active only while runStaticExport() is crawling, so exportStaticSite() can enumerate dynamic routes without reimplementing rendering or needing DI access itself
+- Added fillRouteTemplate() to routeMatch.ts as the inverse of matchRouteTemplate()
+
+### Changed
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Change exportStaticSite() to crawl enumerated concrete paths for a dynamic route instead of always reporting it in dynamicRoutes
+- Update README.md and RELEASE_NOTES.md to document getStaticPaths() and the dynamic-route static export workflow
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+### Fixed
+- Fixed resolveClientUrls() never matching a dynamic-route page's Vite manifest entry, since Rollup/Vite sanitizes [id] to _id_ in a built chunk's name field but the lookup compared against the literal bracketed path, so every hydrate=true dynamic-route page threw on every request
+
 ### Fixed
 - Fixed `ReactRoute.resolveClientUrls()` never matching a dynamic-route page's Vite manifest entry — Rollup/Vite sanitizes `[`/`]` (from a filename like `[id].tsx`) to `_` in the built entry's `name` field, but the lookup compared against the literal, unsanitized path, so every `hydrate=true` dynamic-route page threw "hydrate=true requires react.manifestPath ... and a matching Vite manifest entry" on every request
 - Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
@@ -193,7 +212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...HEAD
+[2.0.0-beta.1]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...v2.0.0-beta.1
 [2.0.0-beta.0]: https://github.com/rapidrest/react/compare/v1.1.0...v2.0.0-beta.0
 [1.1.0]: https://github.com/rapidrest/react/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/rapidrest/react/compare/v1.0.1...v1.0.2

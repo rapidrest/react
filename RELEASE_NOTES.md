@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v2.0.0-beta.1
 
 * Added `getStaticPaths()` support for [dynamic routes](README.md#dynamic-routes): a page and/or
   its matching `@ReactService` can now enumerate the concrete instances of a dynamic route (e.g.
