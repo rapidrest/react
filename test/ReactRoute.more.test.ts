@@ -956,6 +956,19 @@ describe("ReactRoute.handleStaticPaths / STATIC_PATHS_ROUTE gating", () => {
         expect(body["/pets/:id"].sort()).toEqual(["/pets/1", "/pets/2"]);
     });
 
+    it("Tolerates a getStaticPaths() that resolves undefined/null instead of an array.", async () => {
+        const route = new AppRoute();
+        route.setLogger(noopLogger);
+        route.setDynamicServices([
+            { template: "/pets/:id", instance: { getStaticPaths: async () => undefined } },
+        ]);
+        const res = fakeResponse();
+        await route.callHandleStaticPaths(res);
+        const body = JSON.parse((res.send as any).mock.calls[0][0]);
+        // The service contributes nothing, but the page's own two entries still do.
+        expect(body["/pets/:id"].sort()).toEqual(["/pets/1", "/pets/2"]);
+    });
+
     it("Logs a warning and continues (rather than crashing the endpoint) when a page's " +
         "getStaticPaths() throws — a sibling dynamic route is still enumerated normally.", async () => {
         class ThrowingRoute extends TestableReactRoute {
