@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `_layout.tsx` now receives the same merged page props (page `fetchProps` + `@ReactService.fetchProps` + the route's own `fetchProps` override) that the page component it wraps does, instead of always being invoked with no props at all — a layout that only destructures `children` is unaffected
+
 ## [2.0.0-beta.1] - 2026-09-09
 
 ### Added

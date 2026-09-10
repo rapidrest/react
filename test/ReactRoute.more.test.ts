@@ -612,6 +612,23 @@ describe("ReactRoute.get pageSegment/props edge cases", () => {
         expect(String(result)).toContain("<p>Home</p>");
     });
 
+    it("Passes the merged page props through to _layout.tsx, not just the page component.", async () => {
+        class LayoutPropsRoute extends TestableReactRoute {
+            protected readonly appDir: string = "test/app-layout-props";
+            protected override async fetchProps(): Promise<any> {
+                return { siteTitle: "Custom Title" };
+            }
+        }
+        const route = new LayoutPropsRoute();
+        route.setLogger(noopLogger);
+        const result = String(
+            await route.get(fakeRequest({ path: "/", user: { uid: "u1" } }), fakeResponse()),
+        );
+        expect(result).toContain("<title>Custom Title</title>");
+        expect(result).toContain('data-user-uid="u1"');
+        expect(result).toContain("<p>Home</p>");
+    });
+
     it("Spreads the picked user fields into props when userFields is configured and req.user is present.", async () => {
         class ScopedUserRoute extends AppRoute {
             protected readonly hydrate: boolean = true;

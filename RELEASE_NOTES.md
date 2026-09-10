@@ -1,5 +1,13 @@
 # Release Notes
 
+## Unreleased
+
+* Fixed `_layout.tsx` never receiving the resolved page props (from a page's own `fetchProps`, a
+  matching `@ReactService`, or the route's own `fetchProps` override) — it was always rendered with
+  no props at all, even though the exact same data was already being computed for the page component
+  it wraps. A layout can now read that data directly (e.g. to render a per-deployment `<title>` or
+  favicon `<link>` server-side, with no client-side flash)
+
 ## v2.0.0-beta.1
 
 * Added `getStaticPaths()` support for [dynamic routes](README.md#dynamic-routes): a page and/or

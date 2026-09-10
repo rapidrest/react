@@ -158,7 +158,15 @@ export class ReactRoute {
     @Config("react:manifestPath", "")
     private manifestPath: string = "";
 
-    private layout: ComponentType<PropsWithChildren> | null = null;
+    /**
+     * The global layout component, if `_layout.tsx` exists. Receives the same merged `props` object
+     * (page `fetchProps` + `@ReactService.fetchProps` + this route's own `fetchProps` override) as the
+     * page component it wraps, alongside `children` — see the main `renderPage()` render call site. A
+     * layout that only destructures `{ children }` is unaffected by this; it's an additive capability,
+     * not a breaking one. Not extended to the `_500` fallback render (below): `props` there may never
+     * have been computed at all if a `fetchProps` call is what threw in the first place.
+     */
+    private layout: ComponentType<PropsWithChildren<Record<string, any>>> | null = null;
 
     /**
      * Caches resolveAppFile() lookups (production only — the app dir's file set is fixed once
@@ -628,7 +636,7 @@ export class ReactRoute {
                 ? <div id={this.hydrateRootId}><PageComponent {...props} /></div>
                 : <PageComponent {...props} />;
 
-            html = renderToString(Layout ? <Layout>{content}</Layout> : content);
+            html = renderToString(Layout ? <Layout {...props}>{content}</Layout> : content);
 
             if (shouldHydrate) {
                 html = this.injectHydrationAssets(html, props, pagePath);
