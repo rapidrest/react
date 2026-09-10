@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v2.0.0-beta.2
 
 * Fixed `_layout.tsx` never receiving the resolved page props (from a page's own `fetchProps`, a
   matching `@ReactService`, or the route's own `fetchProps` override) — it was always rendered with

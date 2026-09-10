@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.2] - 2026-09-10
+
+### Changed
+- Pass merged page props through to _layout.tsx, not just the page component
+- _layout.tsx was always invoked with null props, even on the main render
+- path where the page/service/route fetchProps merge was already fully
+- computed by that point. This left a layout with no way to render
+- anything data-driven (a per-deployment title, favicon, etc.) without a
+- client-side workaround. Widen ReactRoute's layout field type and spread
+- props onto Layout at the one render call site where they're reliably
+- available; the _500 fallback path is intentionally left unchanged since
+- props there may never have been computed if a fetchProps call is what
+- threw.
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
 ### Fixed
 - `_layout.tsx` now receives the same merged page props (page `fetchProps` + `@ReactService.fetchProps` + the route's own `fetchProps` override) that the page component it wraps does, instead of always being invoked with no props at all — a layout that only destructures `children` is unaffected
 
@@ -215,7 +230,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...HEAD
+[2.0.0-beta.2]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...v2.0.0-beta.2
 [2.0.0-beta.1]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...v2.0.0-beta.1
 [2.0.0-beta.0]: https://github.com/rapidrest/react/compare/v1.1.0...v2.0.0-beta.0
 [1.1.0]: https://github.com/rapidrest/react/compare/v1.0.2...v1.1.0
