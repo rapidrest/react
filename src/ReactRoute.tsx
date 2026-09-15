@@ -985,6 +985,24 @@ export class ReactRoute {
         }
     }
 
+    /** `p` relative to the working directory with forward slashes, e.g. `./apps/www` or an absolute path → `apps/www`. */
+    private static toCwdRelativePosix(p: string): string {
+        return path.relative(process.cwd(), path.resolve(process.cwd(), p)).replace(/\\/g, "/");
+    }
+
+    /**
+     * The source directory a compiled `appDir` mirrors: `appDir` with its last `dist` path segment removed
+     * (`dist/apps/www` → `apps/www`, `node_modules/pkg/dist/apps/www` → `node_modules/pkg/apps/www`). Returns
+     * `null` when `appDir` has no `dist` segment followed by at least one more segment.
+     */
+    private static stripDistSegment(appDir: string): string | null {
+        const parts = appDir.split("/");
+        const index = parts.lastIndexOf("dist");
+        if (index < 0 || index === parts.length - 1) return null;
+        parts.splice(index, 1);
+        return parts.join("/");
+    }
+
     private resolveClientUrls(pagePath: string): { js: string; css: string[] } {
         const manifest = this.resolveManifest();
         if (manifest) {
@@ -1003,8 +1021,18 @@ export class ReactRoute {
             // `this.appDir` — present verbatim in both forms — and compare extension-stripped so a
             // compiled path can still be matched against its source-relative entry.
             const stripExt = (p: string) => p.replace(/\.[^./]+$/, "");
-            const anchorIndex = relPath.indexOf(this.appDir);
+            const appDir = ReactRoute.toCwdRelativePosix(this.appDir);
+            const anchorIndex = relPath.indexOf(appDir);
             const entryKey = stripExt(anchorIndex >= 0 ? relPath.slice(anchorIndex) : relPath);
+            const entryKeys = [entryKey];
+            // An `appDir` can itself point at a compiled mirror of the sources Vite built from — e.g. a
+            // package's `node_modules/<pkg>/dist/apps/www`, whose sources (and so manifest names) are
+            // `node_modules/<pkg>/apps/www/**`. Anchoring at `appDir` alone then never matches, so also
+            // try the sibling source directory with the `dist` segment removed.
+            const sourceAppDir = ReactRoute.stripDistSegment(appDir);
+            if (sourceAppDir && entryKey.startsWith(appDir + "/")) {
+                entryKeys.push(sourceAppDir + entryKey.slice(appDir.length));
+            }
             // Rollup/Vite sanitizes characters that aren't safe in a generated chunk name — including
             // `[`/`]` from a dynamic route segment's filename, e.g. `[id].tsx` — replacing them with `_`
             // when deriving a manifest entry's `name` field from the (virtual) input key. A dynamic-route
@@ -1012,15 +1040,12 @@ export class ReactRoute {
             // must also be compared against its sanitized form (`app/pets/_id_`) — otherwise no dynamic
             // page's entry is ever found by name, and every `hydrate=true` dynamic page throws here on
             // every request.
-            const sanitizedEntryKey = entryKey.replace(/[[\]]/g, "_");
-            const entry =
-                manifest[relPath] ??
-                Object.values(manifest).find(
-                    (candidate) => candidate.name && stripExt(candidate.name) === entryKey
-                ) ??
-                Object.values(manifest).find(
-                    (candidate) => candidate.name && stripExt(candidate.name) === sanitizedEntryKey
-                );
+            const findByName = (key: string) =>
+                Object.values(manifest).find((candidate) => candidate.name && stripExt(candidate.name) === key);
+            let entry: { file: string; css?: string[]; imports?: string[] } | undefined = manifest[relPath];
+            for (const key of entryKeys) {
+                entry = entry ?? findByName(key) ?? findByName(key.replace(/[[\]]/g, "_"));
+            }
             if (entry) {
                 // A stylesheet imported by a *shared* component (e.g. a layout/shell component
                 // several pages import) doesn't end up in the entry chunk's own `css` array —

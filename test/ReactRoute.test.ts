@@ -490,6 +490,76 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
         expect(result.js).toBe("/assets/page1-xyz.js");
     });
 
+    // A route whose appDir points at a package's compiled `dist/` mirror of the sources Vite built from.
+    class CompiledMirrorRoute extends TestableReactRoute {
+        protected readonly appDir: string;
+        constructor(appDir: string) {
+            super();
+            this.appDir = appDir;
+        }
+    }
+
+    function viteEntry(sourceKey: string, file: string): Record<string, any> {
+        return {
+            [`rapidrest-entry:${sourceKey}`]: {
+                file,
+                name: sourceKey.replace(/[[\]]/g, "_"),
+                src: `rapidrest-entry:${sourceKey}`,
+                isEntry: true,
+            },
+        };
+    }
+
+    it("Maps a compiled `dist/` appDir onto its source directory's manifest entry.", () => {
+        const route = new CompiledMirrorRoute("node_modules/pkg/dist/apps/www");
+        const pagePath = path.resolve(process.cwd(), "node_modules/pkg/dist/apps/www/index.js");
+        const manifest = viteEntry("node_modules/pkg/apps/www/index.tsx", "assets/www-index-abc.js");
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/www-index-abc.js");
+    });
+
+    it("Maps a dynamic-route page under a compiled `dist/` appDir onto its sanitized source entry.", () => {
+        const route = new CompiledMirrorRoute("plugins/node_modules/@scope/plugin/dist/apps/book");
+        const pagePath = path.resolve(process.cwd(), "plugins/node_modules/@scope/plugin/dist/apps/book/[slug].js");
+        const manifest = viteEntry("plugins/node_modules/@scope/plugin/apps/book/[slug].tsx", "assets/book-slug.js");
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/book-slug.js");
+    });
+
+    it("Prefers an entry named after the appDir itself over its `dist`-stripped source sibling.", () => {
+        const route = new CompiledMirrorRoute("dist/apps/www");
+        const pagePath = path.resolve(process.cwd(), "dist/apps/www/index.js");
+        const manifest = {
+            ...viteEntry("apps/www/index.tsx", "assets/source.js"),
+            ...viteEntry("dist/apps/www/index.tsx", "assets/verbatim.js"),
+        };
+        const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+        expect(result.js).toBe("/assets/verbatim.js");
+    });
+
+    it("Anchors at an absolute or `./`-prefixed appDir.", () => {
+        const pagePath = path.resolve(process.cwd(), "node_modules/pkg/dist/apps/admin/index.js");
+        const manifest = viteEntry("node_modules/pkg/apps/admin/index.tsx", "assets/admin.js");
+        for (const appDir of [
+            "./node_modules/pkg/dist/apps/admin",
+            path.resolve(process.cwd(), "node_modules/pkg/dist/apps/admin"),
+        ]) {
+            const route = new CompiledMirrorRoute(appDir);
+            const result = withProductionManifest(route, manifest, () => route.callResolveClientUrls(pagePath));
+            expect(result.js).toBe("/assets/admin.js");
+        }
+    });
+
+    it("Doesn't strip a trailing `dist` segment that has nothing after it.", () => {
+        const route = new CompiledMirrorRoute("pkg/dist");
+        const pagePath = path.resolve(process.cwd(), "pkg/dist/index.js");
+        expect(() =>
+            withProductionManifest(route, viteEntry("pkg/index.tsx", "assets/pkg.js"), () =>
+                route.callResolveClientUrls(pagePath)
+            )
+        ).toThrow(/hydrate=true requires react.manifestPath/);
+    });
+
     it("Throws when neither the direct key nor any entry's `name` field matches.", () => {
         const route = new TestableReactRoute();
         const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");

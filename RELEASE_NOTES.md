@@ -1,5 +1,15 @@
 # Release Notes
 
+## Unreleased
+
+* Fixed `ReactRoute.resolveClientUrls()` never finding the Vite manifest entry for a page whose `appDir` points at a
+  compiled copy of its sources, such as a package's `node_modules/<pkg>/dist/apps/www` built by Vite from
+  `node_modules/<pkg>/apps/www`. Every `hydrate=true` page served that way threw, so the page returned 500 in
+  production. When no entry matches under `appDir`, the lookup now also tries `appDir` with its last `dist` segment
+  removed; an entry named after `appDir` itself still wins
+* Fixed `appDir` values written as `./apps/www` or as an absolute path not matching manifest entries; `appDir` is now
+  compared relative to the working directory
+
 ## v2.0.0-beta.2
 
 * Fixed `_layout.tsx` never receiving the resolved page props (from a page's own `fetchProps`, a

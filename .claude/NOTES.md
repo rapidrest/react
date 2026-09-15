@@ -300,3 +300,13 @@ Keep entries terse — this is a reference, not a transcript.
     smell, on sight.
   - Full session: 100% coverage maintained (257 tests, 1 pre-existing skip), `yarn lint` clean, all
     four `tsc` build targets clean.
+- **2026-09-15** — `resolveClientUrls()` couldn't find manifest entries for a compiled `appDir`. Found running
+  `rapidmx/server` in production: its www, admin and escrow routes point `appDir` at
+  `node_modules/@rapidmx/web-client/dist/apps/<app>` (compiled SSR modules), but Vite built the client from
+  `node_modules/@rapidmx/web-client/apps/<app>`, so the manifest names never contained the `dist/...` anchor and
+  every hydrated page 500'd. Fix: normalize `appDir` relative to cwd (so `./x` and absolute dirs anchor too), and when
+  the `appDir` anchor finds nothing, retry with its last `dist` segment removed. An entry named after `appDir` itself
+  is still tried first. This also covers `rapidmx/server` plugin packages that ship `apps` sources plus
+  `dist/apps`. Tests: 5 new `ReactRoute.test.ts` cases (web-client-style dist dir, dynamic page under a plugin dist
+  dir, appDir-first preference, absolute and `./` appDirs, a trailing `dist` that isn't stripped). The server
+  consumed this via a yarn patch of 2.0.0-beta.2 until it's published.
