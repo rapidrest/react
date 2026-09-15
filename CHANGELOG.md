@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-beta.3] - 2026-09-15
+
+### Changed
+- Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+
+### Fixed
+- Fixed resolveClientUrls() not finding manifest entries for a compiled dist appDir by also trying the source dir without its dist segment, and compare appDir relative to the working directory
+
 ## [2.0.0-beta.2] - 2026-09-10
 
 ### Changed
@@ -230,7 +238,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...HEAD
+[2.0.0-beta.3]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...v2.0.0-beta.3
 [2.0.0-beta.2]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...v2.0.0-beta.2
 [2.0.0-beta.1]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...v2.0.0-beta.1
 [2.0.0-beta.0]: https://github.com/rapidrest/react/compare/v1.1.0...v2.0.0-beta.0

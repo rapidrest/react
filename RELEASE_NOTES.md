@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v2.0.0-beta.3
 
 * Fixed `ReactRoute.resolveClientUrls()` never finding the Vite manifest entry for a page whose `appDir` points at a
   compiled copy of its sources, such as a package's `node_modules/<pkg>/dist/apps/www` built by Vite from
