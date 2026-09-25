@@ -310,3 +310,9 @@ Keep entries terse — this is a reference, not a transcript.
   `dist/apps`. Tests: 5 new `ReactRoute.test.ts` cases (web-client-style dist dir, dynamic page under a plugin dist
   dir, appDir-first preference, absolute and `./` appDirs, a trailing `dist` that isn't stripped). The server
   consumed this via a yarn patch of 2.0.0-beta.2 until it's published.
+
+### 2026-09-25 - release bump levels follow upstream
+
+When releasing packages that depend on each other (rapidmx: restapi / react-shared -> web-client -> meet-plugin, booking-plugin, autodiscover, mapi, activesync, server; rapidrest: core / service-core -> auth / auth-server / react / cli and the projects built on them), the bump level of a downstream release matches the level of the upstream release it picks up: an upstream **minor** is a downstream **minor**, an upstream patch a downstream patch, major to major. Where a downstream bump crosses several upstream releases, use the highest level among them, and never choose "patch" just because the downstream's own diff is only a `package.json` bump. Betas keep their prerelease line but follow the same idea - say which level was chosen.
+
+Why: meet-plugin 0.4.2 and booking-plugin 0.5.2 were cut as patches after web-client 0.15.x -> 0.16.0 and react-shared 0.17.0 -> 0.18.0 (both minors), and autodiscover 1.1.1 after restapi 0.20.1 -> 0.21.0; the downstream versions then hid additive behaviour. JP accepted those releases as they were (2026-09-25) and asked for the rule going forward. Releases only happen when JP asks for them.
