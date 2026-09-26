@@ -57,6 +57,15 @@ For complete documentation please visit [RapidREST.dev](https://rapidrest.dev).
 - Serialized props are embedded in the page (XSS-safely escaped) and read back on the client via
   `hydrateRoute()` / `getHydrationProps()`
 
+**Opt-In Client-Side Navigation**
+
+- Set `router = true` on a route (and `router: true` in `createViteConfig()`) and clicks between an
+  app's pages swap the page in place, with no document reload — every URL still server-rendered
+- Built on the existing file routes and props levels: no separate route table, no router
+  dependency; `Link`, `useRouter()`, `usePathname()` and `useParams()` from `@rapidrest/react/client`
+- Falls back to a normal browser navigation whenever it can't be sure (unknown URL, redirect, error,
+  modified click, failed load)
+
 **Developer Experience**
 
 - `rapidreact dev` — runs your server with live restarts (via `nodemon`, falling back to
@@ -253,6 +262,74 @@ manifest:
 // vite.config.ts
 export default createViteConfig({ appDir: ["apps/www", "apps/admin"] });
 ```
+
+### Client-Side Navigation (optional)
+
+Turn an app into one that navigates without loading a new document for every click, while every URL
+is still rendered on the server exactly as before. Set `router = true` on the route, and build the
+client with the router:
+
+```ts
+export class AppRouter extends ReactRoute {
+    protected readonly appDir: string = "app";
+    protected readonly router: boolean = true; // implies hydrate
+}
+```
+
+```ts
+// vite.config.ts — `true` for every appDir, or list the ones to route
+export default createViteConfig({ appDir: "app", router: true });
+```
+
+The server still answers every URL with a full, server-rendered document (crawlers, first loads,
+reloads, and browsers without JavaScript see no difference). The client just takes over from there:
+the router hydrates the page it was served, and from then on a click on a same-app link fetches
+that page's data from the server (the same URL, asked for as JSON), loads its module and
+stylesheets, and swaps it into place. `_layout.tsx` is part of the server-rendered document and
+stays as it is — only the page inside it changes. Back/forward, scroll position, and `<title>`/
+`<meta>` set from a page (React 19 hoists them) work as they do for a normal page load.
+
+Use `Link` for internal links — it prefetches a page when it is hovered or focused — and the hooks
+to read or change where the page is:
+
+```tsx
+import { Link, useParams, usePathname, useRouter } from "@rapidrest/react/client";
+
+export default function Pet() {
+    const { id } = useParams();       // values captured by the route's :params
+    const pathname = usePathname();   // includes the mount prefix
+    const router = useRouter();       // { pathname, search, params, route, navigate, prefetch, canHandle }
+    return (
+        <>
+            <Link href="/pets">All pets</Link>
+            <button onClick={() => router.navigate("/pets", { replace: true })}>Done</button>
+        </>
+    );
+}
+```
+
+`Link` accepts `replace` (replace the history entry instead of adding one), `scroll={false}` (keep
+the scroll position) and `prefetch={false}`. Plain `<a href>` links are picked up too, so existing
+markup and server-rendered content need no changes; put `data-router-ignore` on a link to leave it
+to the browser, or `data-router-replace` to replace the history entry.
+
+**When the router steps aside.** Anything it can't be sure of is handed back to the browser as an
+ordinary navigation, so the worst case is the behaviour you had without the router: links with a
+modifier key, `target`, `download` or `rel="external"`, another origin or another app's prefix,
+hash-only changes, URLs that match no page, a page that redirects, answers with an error status, or
+whose module or data fails to load. Only the latest of overlapping navigations is applied. A page
+that throws while rendering after a navigation is reloaded the ordinary way once (guarded so it
+can't loop).
+
+**Things to know**
+- The router's first-load cost is one extra entry chunk shared by every page of the app; each page's
+  own module is loaded when it's navigated to (and hinted with `modulepreload` in the served HTML).
+- The JSON for a page comes from the same `fetchProps` levels as the server render, is cached with
+  the same TTL as the HTML in production, and is sent with `Vary: X-Rapidrest-Navigation` so caches
+  and CDNs keep it apart from the document.
+- `createViteConfig()` still builds a hydration entry per page under the router. They aren't loaded;
+  the manifest records tell the server which stylesheets and chunks each page needs.
+- Two apps don't share a router: a link from one app's prefix to another is a full navigation.
 
 ## Static Export
 

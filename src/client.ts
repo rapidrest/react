@@ -42,3 +42,8 @@ export function hydrateRoute(
     const props = getHydrationProps(propsId);
     hydrateRoot(container, React.createElement(Component, props));
 }
+
+export { startRouter } from "./router.js";
+export { Link, RouterProvider, useParams, usePathname, useRouter } from "./routerContext.js";
+export type { LinkProps, RouterApi, RouterLocation } from "./routerContext.js";
+export type { ClientRoute, NavigateOptions } from "./routerCore.js";

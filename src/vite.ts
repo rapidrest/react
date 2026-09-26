@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import path from "node:path";
-import { scanAppDirPages } from "./appDirScan.js";
+import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
+import { ROUTER_ENTRY_NAME } from "./routerCore.js";
 
 /**
  * Configuration options for createViteConfig.
@@ -34,6 +35,17 @@ export interface RapidRestViteOptions {
     outDir?: string;
 
     /**
+     * Client-side navigation: for each of these `appDir`s (`true` for all of them), also build a router entry. The
+     * entry hydrates whichever page the server rendered and, from then on, navigates between the app's pages without
+     * loading a whole document, loading each page's module (a separate chunk, fetched on demand or ahead of time) and
+     * its data as it's needed. The matching `ReactRoute` sets `router = true`. See `routerCore.ts` for what it does,
+     * and when it leaves navigating to the browser.
+     *
+     * Default: no router; pages hydrate independently and every navigation loads a whole document.
+     */
+    router?: boolean | string[];
+
+    /**
      * Additional Vite plugins to include (e.g. `@tailwindcss/vite`, `vite-plugin-svgr`).
      * These are appended after the built-in React and hydration plugins.
      */
@@ -41,6 +53,7 @@ export interface RapidRestViteOptions {
 }
 
 const VIRTUAL_PREFIX = "\0rapidrest-entry:";
+const ROUTER_PREFIX = "\0rapidrest-router:";
 
 /**
  * Scans `appDir` and returns a rollup input map for all page entry points, matching
@@ -57,6 +70,36 @@ function findPageEntries(appDir: string): Record<string, string> {
 }
 
 /**
+ * The source of an app's router entry: a route table of the app's pages, each loaded by a dynamic import (so each becomes
+ * its own chunk), handed to `startRouter()`.
+ *
+ * Where two files serve one route — `pets.tsx` and `pets/index.tsx` — the plain file wins, as it does when the server
+ * resolves the URL.
+ */
+export function routerEntrySource(appDir: string, pages: string[] = scanAppDirPages(appDir)): string {
+    const byTemplate = new Map<string, string>();
+    // (`pages` is in directory-scan order, which differs between filesystems — so both orders of a plain file and its
+    // `index` twin are handled.)
+    for (const relPath of pages) {
+        const template = fileToRouteTemplate(relPath);
+        const existing = byTemplate.get(template);
+        if (!existing || (existing.endsWith("/index.tsx") && !relPath.endsWith("/index.tsx"))) {
+            byTemplate.set(template, relPath);
+        }
+    }
+    const routes = [...byTemplate].map(([template, relPath]) => {
+        const absPath = path.resolve(appDir, relPath).replace(/\\/g, "/");
+        return `    { template: ${JSON.stringify(template)}, load: () => import(${JSON.stringify(absPath)}) },`;
+    });
+    return [
+        `import { startRouter } from "@rapidrest/react/client";`,
+        `startRouter([`,
+        ...routes,
+        `]);`,
+    ].join("\n");
+}
+
+/**
  * Vite plugin that auto-discovers page entry points from one or more `appDir`s and generates
  * virtual hydration entry modules for each — no hand-written `*.entry.tsx` files needed.
  *
@@ -70,7 +113,7 @@ function findPageEntries(appDir: string): Record<string, string> {
  * came from, so merging multiple apps only changes what `options()` discovers, not how the
  * resulting virtual modules resolve or load.
  */
-function rapidRestHydrationPlugin(appDirs: string[]) {
+function rapidRestHydrationPlugin(appDirs: string[], routerAppDirs: string[] = []) {
     // Vite (rolldown) pre-fills `opts.input` with this resolved (and, for this framework, always
     // nonexistent) path whenever the project doesn't configure an explicit entry, before options()
     // ever runs. Captured via configResolved() so options() can drop exactly that placeholder -
@@ -87,7 +130,14 @@ function rapidRestHydrationPlugin(appDirs: string[]) {
         options(opts: any) {
             const entries: Record<string, string> = {};
             for (const appDir of appDirs) {
+                // Every page gets its hydration entry, router or not. Under the router nothing loads them (the router
+                // entry hydrates whichever page it finds itself on), but each one is a record in the manifest naming the
+                // stylesheets and chunks its page needs — which is how the server knows what to put in the page's HTML.
                 Object.assign(entries, findPageEntries(appDir));
+                if (routerAppDirs.includes(appDir)) {
+                    const key = path.posix.join(appDir.replace(/\\/g, "/"), ROUTER_ENTRY_NAME);
+                    entries[key] = ROUTER_PREFIX + appDir;
+                }
             }
             if (Object.keys(entries).length === 0) return null;
 
@@ -112,10 +162,11 @@ function rapidRestHydrationPlugin(appDirs: string[]) {
         },
 
         resolveId(id: string) {
-            if (id.startsWith(VIRTUAL_PREFIX)) return id;
+            if (id.startsWith(VIRTUAL_PREFIX) || id.startsWith(ROUTER_PREFIX)) return id;
         },
 
         load(id: string) {
+            if (id.startsWith(ROUTER_PREFIX)) return routerEntrySource(id.slice(ROUTER_PREFIX.length));
             if (!id.startsWith(VIRTUAL_PREFIX)) return;
             const sourcePath = id.slice(VIRTUAL_PREFIX.length);
             const absPath = path.resolve(sourcePath).replace(/\\/g, "/");
@@ -156,11 +207,12 @@ export async function createViteConfig(options: RapidRestViteOptions = {}) {
     const { defineConfig } = await import("vite");
     const { default: react } = await import("@vitejs/plugin-react");
 
-    const { appDir = "app", outDir = "dist/public", plugins: userPlugins = [] } = options;
+    const { appDir = "app", outDir = "dist/public", router = false, plugins: userPlugins = [] } = options;
     const appDirs = Array.isArray(appDir) ? appDir : [appDir];
+    const routerAppDirs = router === true ? appDirs : Array.isArray(router) ? router : [];
 
     return defineConfig({
-        plugins: [react(), rapidRestHydrationPlugin(appDirs), ...userPlugins],
+        plugins: [react(), rapidRestHydrationPlugin(appDirs, routerAppDirs), ...userPlugins],
         build: {
             outDir,
             manifest: true,

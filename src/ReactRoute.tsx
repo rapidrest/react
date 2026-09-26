@@ -13,6 +13,8 @@ import React, { ComponentType, PropsWithChildren } from "react";
 import { renderToString } from "react-dom/server";
 import { ObjectDecorators, RedisStore } from "@rapidrest/core";
 import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
+import { RouterProvider } from "./routerContext.js";
+import { NAVIGATION_HEADER, ROUTER_CONFIG_ID, ROUTER_ENTRY_NAME, type RouterConfig } from "./routerCore.js";
 import {
     fillRouteTemplate,
     matchRouteTemplate,
@@ -85,6 +87,25 @@ interface CacheEntry {
     hash: string;
 }
 
+/** One record of Vite's `manifest.json`, as far as this needs to read it. */
+interface ManifestChunk {
+    file: string;
+    css?: string[];
+    imports?: string[];
+    name?: string;
+}
+
+type Manifest = Record<string, ManifestChunk>;
+
+/** What resolving a URL against the app directory gives: the page file, and the route it is. */
+export interface ResolvedAppFile {
+    file: string;
+    /** The values the URL's dynamic (`[name]`) segments captured. */
+    params: Record<string, string>;
+    /** The page's route template, e.g. `/pets/:id`, relative to the mount prefix. */
+    template: string;
+}
+
 /**
  * Base class for HTTP routes that serve React pages from the `app/` directory.
  *
@@ -138,6 +159,19 @@ export class ReactRoute {
     protected readonly hydrate: boolean = false;
 
     /**
+     * Opt-in client-side navigation. When true, the pages of this app hydrate under a router that, on a click on a link
+     * to another of the app's pages, fetches that page's props as JSON (the same props the server would have rendered it
+     * with) and swaps the page in, instead of loading a whole new document. Implies `hydrate`, and needs the client
+     * bundle built with `createViteConfig({ router: true })`.
+     *
+     * The router only ever *enhances* rendering the page on the server, which it never replaces: every page is still
+     * served as complete HTML at its own URL (so it works with JavaScript off, for crawlers, and as the first load),
+     * and whenever the client isn't sure it can navigate faithfully — an unknown route, a redirect, an error page, any
+     * failure — the browser simply loads the URL the ordinary way. See `routerCore.ts`.
+     */
+    protected readonly router: boolean = false;
+
+    /**
      * Allow-list of `req.user` field names exposed as `props.user`. Default `null` means no
      * `user` object is exposed to pages or the hydration payload — only the scalar `userUid` is
      * passed. Opt in per-subclass, e.g. `protected readonly userFields = ["uid", "email"];`.
@@ -177,7 +211,7 @@ export class ReactRoute {
      * built, so repeat fs work per request is pure waste; dev mode always re-resolves so newly
      * added/removed page files are picked up immediately).
      */
-    private resolvedFileCache: Map<string, { file: string; params: Record<string, string> } | null> = new Map();
+    private resolvedFileCache: Map<string, ResolvedAppFile | null> = new Map();
 
     /**
      * In-flight render promises keyed by cache key, so concurrent requests for the same cold
@@ -342,12 +376,6 @@ export class ReactRoute {
         return hash;
     }
 
-    /**
-     * Whether dev-only behaviors (live-reload SSE endpoint, reload script injection, manifest
-     * file-watching) are enabled. Explicit allow-list rather than `!== "production"` so an unset
-     * or misconfigured NODE_ENV in a real deployment fails closed (dev features OFF) instead of
-     * failing open. Override in a subclass to opt a non-standard environment name into dev mode.
-     */
     /** Pending "reload" notification, so a burst of change events from one build produces a single reload. */
     private manifestReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -404,6 +432,12 @@ export class ReactRoute {
         }
     }
 
+    /**
+     * Whether dev-only behaviors (live-reload SSE endpoint, reload script injection, manifest
+     * file-watching) are enabled. Explicit allow-list rather than `!== "production"` so an unset
+     * or misconfigured NODE_ENV in a real deployment fails closed (dev features OFF) instead of
+     * failing open. Override in a subclass to opt a non-standard environment name into dev mode.
+     */
     protected isDevMode(): boolean {
         const env = process.env.NODE_ENV;
         return env === "development" || env === "test" || !!process.env.VITEST || !!process.env.JEST_WORKER_ID;
@@ -424,7 +458,7 @@ export class ReactRoute {
     protected async resolveAppFile(
         appDir: string,
         segment: string
-    ): Promise<{ file: string; params: Record<string, string> } | null> {
+    ): Promise<ResolvedAppFile | null> {
         const isProduction = process.env.NODE_ENV === "production";
         const cacheKey = `${appDir} ${segment}`;
         if (isProduction) {
@@ -561,18 +595,21 @@ export class ReactRoute {
         root: string,
         parts: string[],
         suffixes: string[]
-    ): Promise<{ file: string; params: Record<string, string> } | null> {
+    ): Promise<ResolvedAppFile | null> {
         const appRoot = path.resolve(process.cwd(), root);
 
         if (parts.length === 0) {
             for (const suffix of suffixes) {
                 const full = appRoot + suffix;
-                if (await this.fileExists(full)) return { file: full, params: {} };
+                if (await this.fileExists(full)) return { file: full, params: {}, template: "/" };
             }
             return null;
         }
 
         const params: Record<string, string> = {};
+        // The route template of what's being resolved (`/pets/:id`), built as the walk goes: a literal segment stays as it
+        // is, and one that matched a `[name]` sibling becomes `:name`. It's what the client router matches on.
+        const templateParts: string[] = [];
         let currentDir = appRoot;
 
         for (let i = 0; i < parts.length; i++) {
@@ -583,18 +620,22 @@ export class ReactRoute {
                 const literalDir = path.join(currentDir, part);
                 if (await this.isDirectory(literalDir)) {
                     currentDir = literalDir;
+                    templateParts.push(part);
                     continue;
                 }
                 const bracketName = await this.findDynamicSegmentName(currentDir, null);
                 if (!bracketName) return null;
                 params[bracketName] = part;
+                templateParts.push(`:${bracketName}`);
                 currentDir = path.join(currentDir, `[${bracketName}]`);
                 continue;
             }
 
             for (const suffix of suffixes) {
                 const full = path.join(currentDir, part) + suffix;
-                if (await this.fileExists(full)) return { file: full, params };
+                if (await this.fileExists(full)) {
+                    return { file: full, params, template: "/" + [...templateParts, part].join("/") };
+                }
             }
 
             const fileExts = suffixes.filter((s) => !s.startsWith("/"));
@@ -603,13 +644,55 @@ export class ReactRoute {
             const bracketParams = { ...params, [bracketName]: part };
             for (const suffix of suffixes) {
                 const full = path.join(currentDir, `[${bracketName}]`) + suffix;
-                if (await this.fileExists(full)) return { file: full, params: bracketParams };
+                if (await this.fileExists(full)) {
+                    return {
+                        file: full,
+                        params: bracketParams,
+                        template: "/" + [...templateParts, `:${bracketName}`].join("/"),
+                    };
+                }
             }
             return null;
         }
 
         /* v8 ignore next -- unreachable: the loop always returns on its last (isLast) iteration */
         return null;
+    }
+
+    /**
+     * Computes the props a page is rendered with: its own `fetchProps`, a matching `@ReactService`'s, and this route's own
+     * override, fetched concurrently (they're independent data sources) and merged in that order of precedence, on top
+     * of the identity of the user and the dynamic-segment captures. Used both to render the page on the server and to
+     * answer a client navigation with the very same props, so the two can never disagree.
+     */
+    private async buildProps(
+        req: HttpRequest,
+        pageSegment: string,
+        mod: any,
+        dynamicParams: Record<string, string>
+    ): Promise<any> {
+        const pageFetchProps: ((req: HttpRequest) => Promise<any>) | undefined = mod.fetchProps;
+
+        // Check to see if there's a react service for this page path
+        const service: any = this.resolveService(pageSegment);
+
+        // There are three levels of fetching props: Page => Service => Route. These are
+        // independent data sources — fetch them concurrently rather than one at a time.
+        const [pageProps, serviceProps, routePropsRaw] = await Promise.all([
+            pageFetchProps ? pageFetchProps(req) : Promise.resolve({}),
+            service ? service.fetchProps(req) : Promise.resolve({}),
+            this.fetchProps(req),
+        ]);
+        const routeProps = routePropsRaw ?? {};
+        const exposedUser = this.pickUserFields(req.user);
+        return {
+            userUid: req.user?.uid,
+            ...(exposedUser !== undefined ? { user: exposedUser } : {}),
+            params: dynamicParams,
+            ...pageProps,
+            ...serviceProps,
+            ...routeProps,
+        };
     }
 
     /**
@@ -633,6 +716,7 @@ export class ReactRoute {
         const resolved = await this.resolveAppFile(this.appDir, pageSegment);
         let pagePath = resolved?.file ?? null;
         const dynamicParams = resolved?.params ?? {};
+        const template = resolved?.template ?? "";
         let httpStatus = 200;
         if (!pagePath) {
             pagePath = (await this.resolveAppFile(this.appDir, "_404"))?.file ?? null;
@@ -654,42 +738,36 @@ export class ReactRoute {
         try {
             const mod = await import(pathToFileURL(pagePath).href);
             const PageComponent = mod.default;
-            const pageFetchProps: ((req: HttpRequest) => Promise<any>) | undefined = mod.fetchProps;
-
-            // Check to see if there's a react service for this page path
-            const service: any = this.resolveService(pageSegment);
-
-            // There are three levels of fetching props: Page => Service => Route. These are
-            // independent data sources — fetch them concurrently rather than one at a time.
-            const [pageProps, serviceProps, routePropsRaw] = await Promise.all([
-                pageFetchProps ? pageFetchProps(req) : Promise.resolve({}),
-                service ? service.fetchProps(req) : Promise.resolve({}),
-                this.fetchProps(req),
-            ]);
-            const routeProps = routePropsRaw ?? {};
-            const exposedUser = this.pickUserFields(req.user);
-            const props = {
-                userUid: req.user?.uid,
-                ...(exposedUser !== undefined ? { user: exposedUser } : {}),
-                params: dynamicParams,
-                ...pageProps,
-                ...serviceProps,
-                ...routeProps,
-            };
+            const props = await this.buildProps(req, pageSegment, mod, dynamicParams);
 
             // `_404`/`_500` fallback pages are deliberately excluded from Vite's page-entry
             // scan (see findPageEntries in vite.ts), so they have no hydration bundle to inject —
             // only hydrate a genuinely-matched page (httpStatus === 200).
-            const shouldHydrate = this.hydrate && httpStatus === 200;
+            const shouldHydrate = (this.hydrate || this.router) && httpStatus === 200;
             const Layout = this.layout;
-            const content = shouldHydrate
-                ? <div id={this.hydrateRootId}><PageComponent {...props} /></div>
-                : <PageComponent {...props} />;
+            const pageElement = <PageComponent {...props} />;
+            // Under the router the page renders inside the same `RouterProvider` the browser hydrates it in, so that
+            // anything reading the location (a nav highlighting the current link) renders identically on both sides.
+            const routed = this.router ? (
+                <RouterProvider
+                    location={{
+                        pathname: req.path,
+                        search: (req.url ?? "").includes("?") ? req.url.slice(req.url.indexOf("?")) : "",
+                        params: dynamicParams,
+                        route: template,
+                    }}
+                >
+                    {pageElement}
+                </RouterProvider>
+            ) : pageElement;
+            const content = shouldHydrate ? <div id={this.hydrateRootId}>{routed}</div> : pageElement;
 
             html = renderToString(Layout ? <Layout {...props}>{content}</Layout> : content);
 
             if (shouldHydrate) {
-                html = this.injectHydrationAssets(html, props, pagePath);
+                html = this.router
+                    ? this.injectRouterAssets(html, props, pagePath, template)
+                    : this.injectHydrationAssets(html, props, pagePath);
             }
         } catch (err) {
             this.logger.error(`[ReactRoute] SSR error for "${req.path}":`, err);
@@ -759,6 +837,15 @@ export class ReactRoute {
             return res;
         }
 
+        // The same URL is answered with HTML or, to the client router asking for a page's data, JSON: a cache in
+        // between must keep the two apart.
+        if (this.router) {
+            (res as any).setHeader?.("Vary", NAVIGATION_HEADER);
+            if (req.headers?.[NAVIGATION_HEADER.toLowerCase()] === "1") {
+                return this.handleNavigation(req, res, pageSegment);
+            }
+        }
+
         const cacheClient = process.env.NODE_ENV === "production" ? this.cache : undefined;
         const cacheKey = cacheClient ? this.hashRequest(req) : null;
 
@@ -826,6 +913,60 @@ export class ReactRoute {
     @ContentType("text/html")
     public async getIndex(@Request req: HttpRequest, @Response res: HttpResponse) {
         return this.get(req, res);
+    }
+
+    /**
+     * Answers a client-router navigation request: the page's props as JSON — what `renderPage()` would have rendered it
+     * with — instead of its HTML, along with the stylesheets it needs. Anything but a page that resolves and computes
+     * its props (no such page, an error) is answered with the status alone, which tells the client to have the browser
+     * load the URL the ordinary way, so it's the server that renders the error page, exactly as it always did.
+     */
+    private async handleNavigation(req: HttpRequest, res: HttpResponse, pageSegment: string): Promise<HttpResponse> {
+        const cacheClient = process.env.NODE_ENV === "production" ? this.cache : undefined;
+        const cacheKey = cacheClient ? this.hashRequest(req) + ".navigation" : null;
+
+        if (cacheClient && cacheKey) {
+            try {
+                const cached = await cacheClient.load(cacheKey);
+                if (cached?.json) return this.sendJson(res, 200, cached.json);
+            } catch (err) {
+                this.logger.warn(`[ReactRoute] Cache read failed for "${req.path}":`, err);
+            }
+        }
+
+        const result = await this.renderNavigation(req, pageSegment);
+        if (result.status === 200 && cacheClient && cacheKey) {
+            Promise.resolve(cacheClient.save(cacheKey, { json: result.json }, this.cacheTTL)).catch((err) => {
+                this.logger.warn(`[ReactRoute] Failed to write cache for "${req.path}":`, err);
+            });
+        }
+        return this.sendJson(res, result.status, result.json);
+    }
+
+    private async renderNavigation(req: HttpRequest, pageSegment: string): Promise<{ status: number; json: string }> {
+        const resolved = await this.resolveAppFile(this.appDir, pageSegment);
+        if (!resolved) return { status: 404, json: JSON.stringify({ status: 404 }) };
+
+        req.params = { ...req.params, ...resolved.params };
+        try {
+            const mod = await import(pathToFileURL(resolved.file).href);
+            const props = await this.buildProps(req, pageSegment, mod, resolved.params);
+            const { css } = this.resolveRouterAssets(resolved.file);
+            return { status: 200, json: JSON.stringify({ route: resolved.template, props, css }) };
+        } catch (err) {
+            this.logger.error(`[ReactRoute] Error computing props for navigation to "${req.path}":`, err);
+            return { status: 500, json: JSON.stringify({ status: 500 }) };
+        }
+    }
+
+    /** Sends a JSON response with the given status code, bypassing the middleware wrapper. */
+    private sendJson(res: HttpResponse, status: number, json: string): HttpResponse {
+        (res as any).status?.(status);
+        (res as any).setHeader?.("content-type", "application/json");
+        (res as any).setHeader?.("Vary", NAVIGATION_HEADER);
+        (res as any).setHeader?.("X-Content-Type-Options", "nosniff");
+        (res as any).send?.(json);
+        return res;
     }
 
     /** Sends an HTML response with the given status code, bypassing the middleware wrapper. */
@@ -1053,7 +1194,13 @@ export class ReactRoute {
         return parts.join("/");
     }
 
-    private resolveClientUrls(pagePath: string): { js: string; css: string[] } {
+    /**
+     * Finds the manifest record of a page's hydration entry. Each page has one (its virtual entry module, built as a
+     * Vite input of its own — also under the router, where it exists only so the manifest says which stylesheets and
+     * chunks the page needs), keyed by the entry's input name rather than its source path, which a shared chunk can
+     * swallow.
+     */
+    private findPageEntry(pagePath: string): { manifest: Manifest; entry: ManifestChunk } {
         const manifest = this.resolveManifest();
         if (manifest) {
             const relPath = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
@@ -1092,36 +1239,15 @@ export class ReactRoute {
             // every request.
             const findByName = (key: string) =>
                 Object.values(manifest).find((candidate) => candidate.name && stripExt(candidate.name) === key);
-            let entry: { file: string; css?: string[]; imports?: string[] } | undefined = manifest[relPath];
+            // The entry's own record first: a page module that's also loaded some other way (dynamically, by the router)
+            // is a chunk of its own, keyed by its source path — a record of the page itself, not of its entry.
+            let entry: ManifestChunk | undefined;
             for (const key of entryKeys) {
                 entry = entry ?? findByName(key) ?? findByName(key.replace(/[[\]]/g, "_"));
             }
+            entry = entry ?? manifest[relPath];
             if (entry) {
-                // A stylesheet imported by a *shared* component (e.g. a layout/shell component
-                // several pages import) doesn't end up in the entry chunk's own `css` array —
-                // Vite hoists CSS shared across multiple entries into whichever intermediate
-                // chunk actually contains the import (visible in the manifest via that chunk's
-                // own `imports`/`css` fields), not onto every entry that transitively pulls it
-                // in. Reading only `entry.css` therefore silently drops any stylesheet imported
-                // from a non-entry module in the graph — walk `imports` (deduping against cycles
-                // shared chunks can create) to collect every chunk's `css`, matching how the
-                // built HTML is actually assembled by Vite/Rollup.
-                const seenChunks = new Set<string>();
-                const collectCss = (chunk: { css?: string[]; imports?: string[] }): string[] => {
-                    const css = [...(chunk.css ?? [])];
-                    for (const importKey of chunk.imports ?? []) {
-                        if (seenChunks.has(importKey)) {
-                            continue;
-                        }
-                        seenChunks.add(importKey);
-                        const imported = manifest[importKey];
-                        if (imported) {
-                            css.push(...collectCss(imported));
-                        }
-                    }
-                    return css;
-                };
-                return { js: `/${entry.file}`, css: [...new Set(collectCss(entry))].map((f) => `/${f}`) };
+                return { manifest, entry };
             }
             this.logger.warn(
                 `[ReactRoute] Manifest entry "${relPath}" not found. ` +
@@ -1129,9 +1255,49 @@ export class ReactRoute {
             );
         }
         throw new Error(
-            `[ReactRoute] hydrate=true requires react.manifestPath to be configured ` +
+            `[ReactRoute] ${this.router ? "router=true" : "hydrate=true"} requires react.manifestPath to be configured ` +
             `and a matching Vite manifest entry for "${pagePath}".`
         );
+    }
+
+    /**
+     * Everything `chunk` needs: the stylesheets of it and of every chunk it imports, and the files of those imported
+     * chunks. A stylesheet imported by a *shared* component (e.g. a layout/shell component several pages import)
+     * doesn't end up in the entry chunk's own `css` array — Vite hoists CSS shared across multiple entries into whichever
+     * intermediate chunk actually contains the import (visible in the manifest via that chunk's own `imports`/`css`
+     * fields), not onto every entry that transitively pulls it in. Reading only `chunk.css` therefore silently drops any
+     * stylesheet imported from a non-entry module in the graph — this walks `imports` (deduping against cycles shared
+     * chunks can create) to collect every chunk's `css`, matching how the built HTML is actually assembled by
+     * Vite/Rollup.
+     */
+    private static collectChunkAssets(manifest: Manifest, chunk: ManifestChunk): { css: string[]; files: string[] } {
+        const seenChunks = new Set<string>();
+        const walk = (current: ManifestChunk): { css: string[]; files: string[] } => {
+            const css = [...(current.css ?? [])];
+            const files: string[] = [];
+            for (const importKey of current.imports ?? []) {
+                if (seenChunks.has(importKey)) {
+                    continue;
+                }
+                seenChunks.add(importKey);
+                const imported = manifest[importKey];
+                if (imported) {
+                    const nested = walk(imported);
+                    css.push(...nested.css);
+                    files.push(imported.file, ...nested.files);
+                }
+            }
+            return { css, files };
+        };
+        return walk(chunk);
+    }
+
+    private resolveClientUrls(pagePath: string): { js: string; css: string[] } {
+        const { manifest, entry } = this.findPageEntry(pagePath);
+        return {
+            js: `/${entry.file}`,
+            css: [...new Set(ReactRoute.collectChunkAssets(manifest, entry).css)].map((f) => `/${f}`),
+        };
     }
 
     /**
@@ -1143,6 +1309,62 @@ export class ReactRoute {
      */
     protected escapeForInlineScript(json: string): string {
         return json.replace(/</g, "\\u003c");
+    }
+
+    /**
+     * The client assets for a page under the router: the app's router entry (which hydrates whichever page it finds
+     * itself on, and takes over navigating from there), the stylesheets that page needs, and hints to fetch its chunks now
+     * rather than after the router entry has run. The page's own stylesheets and chunks come from its hydration entry's
+     * record in the manifest (see findPageEntry()); the router entry is the one built for the app's `appDir`.
+     */
+    private resolveRouterAssets(pagePath: string): { entry: string; css: string[]; preload: string[] } {
+        const { manifest, entry: pageEntry } = this.findPageEntry(pagePath);
+
+        const appDir = ReactRoute.toCwdRelativePosix(this.appDir);
+        // A compiled app (`dist/apps/www`) was built from the sources without `dist`, which is what its entries are named for.
+        const sourceAppDir = ReactRoute.stripDistSegment(appDir);
+        const entryNames = [appDir, ...(sourceAppDir ? [sourceAppDir] : [])].map((dir) => `${dir}/${ROUTER_ENTRY_NAME}`);
+        const routerEntry = Object.values(manifest).find((candidate) => candidate.name && entryNames.includes(candidate.name));
+        if (!routerEntry) {
+            throw new Error(
+                `[ReactRoute] router=true requires a Vite manifest entry for the router of "${appDir}" (${entryNames[0]}). ` +
+                `Build the client with createViteConfig({ router: true }). Available keys: ${Object.keys(manifest).join(", ")}`
+            );
+        }
+
+        const page = ReactRoute.collectChunkAssets(manifest, pageEntry);
+        const router = ReactRoute.collectChunkAssets(manifest, routerEntry);
+        const url = (f: string) => `/${f}`;
+        return {
+            entry: url(routerEntry.file),
+            css: [...new Set([...(routerEntry.css ?? []), ...router.css, ...(pageEntry.css ?? []), ...page.css])].map(url),
+            // What the page's chunks import that the router entry doesn't already load itself.
+            preload: [...new Set(page.files)].filter((f) => f !== routerEntry.file && !router.files.includes(f)).map(url),
+        };
+    }
+
+    private injectRouterAssets(html: string, props: any, pagePath: string, template: string): string {
+        const { entry, css, preload } = this.resolveRouterAssets(pagePath);
+        const config: RouterConfig = {
+            prefix: this.routePrefix,
+            route: template,
+            rootId: this.hydrateRootId,
+            propsId: this.hydratePropsId,
+        };
+        const configTag = `<script type="application/json" id="${ROUTER_CONFIG_ID}">${this.escapeForInlineScript(JSON.stringify(config))}</script>`;
+        const propsTag = `<script type="application/json" id="${this.hydratePropsId}">${this.escapeForInlineScript(JSON.stringify(props))}</script>`;
+        const headTags =
+            css.map((href) => `<link rel="stylesheet" href="${href}">`).join("") +
+            preload.map((href) => `<link rel="modulepreload" href="${href}">`).join("");
+        const bodyTags = configTag + propsTag + `<script type="module" src="${entry}"></script>`;
+
+        let result = html;
+        if (result.includes("</head>")) {
+            result = result.replace("</head>", headTags + "</head>");
+        }
+        if (result.includes("</body>")) return result.replace("</body>", bodyTags + "</body>");
+        if (result.includes("</html>")) return result.replace("</html>", bodyTags + "</html>");
+        return result + bodyTags;
     }
 
     private injectHydrationAssets(html: string, props: any, pagePath: string): string {

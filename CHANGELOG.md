@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added opt-in client-side navigation: set `router = true` on a `ReactRoute` and `router: true` (or a list of `appDir`s) in `createViteConfig()`, and clicks between the app's pages swap the page in place instead of loading a new document, while every URL is still server-rendered in full. The client (`startRouter`, built as one `__router` entry per app) hydrates the served page, then fetches a page's props from the same URL asked for as JSON (`X-Rapidrest-Navigation: 1`, answered with `Vary`, cached like the HTML), loads its module and stylesheets, and renders it, with history, scroll restoration, prefetch on hover/focus, and a browser navigation as the fallback whenever it can't be sure (unknown URL, redirect, error status, modified click, failed load or render)
+- Added `Link`, `useRouter()`, `usePathname()` and `useParams()` to `@rapidrest/react/client`; they render and read the same on the server and in the browser
+- Route templates (`/pets/:id`) are now shared between the server's file-based resolution and the client's route table
+
+### Changed
+- `ReactRoute` looks up a page's Vite manifest entry by the entry's name before its source path, since a page module that is also loaded dynamically is a chunk of its own under its source path
+
 ### Fixed
 - Fixed the dev server crashing on Windows, and staying down until the next file change, whenever a client rebuild replaced the Vite manifest: the `fs.watch` on it emitted an unhandled `'error'` (`EPERM`), which Node treats as fatal
 - Fixed live reload silently stopping after the first rebuild on platforms where the watcher survives the manifest being replaced but keeps watching the deleted file

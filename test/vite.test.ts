@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import path from "node:path";
-import { createViteConfig } from "../src/vite.js";
+import { createViteConfig, routerEntrySource } from "../src/vite.js";
 
 // The hydration plugin exposes hooks: options(opts), resolveId(id), load(id).
 // It is the second plugin returned (after @vitejs/plugin-react's react()).
@@ -218,5 +218,109 @@ describe("rapidrest-hydration plugin", () => {
             const { plugin } = await getHydrationPlugin({ appDir: "test/fixtures/vite-app/sub" });
             expect(plugin.load("some/other/id.ts")).toBeUndefined();
         });
+    });
+});
+
+describe("rapidrest-hydration plugin — router", () => {
+    const APP = "test/fixtures/router-app";
+    const ROUTER_ID = "\0rapidrest-router:" + APP;
+
+    describe("options()", () => {
+        const pages = (dir: string, files: string[]) => files.map((f) => `${dir}/${f}`);
+        const APP_PAGES = ["boom.tsx", "index.tsx", "nested/index.tsx", "pets.tsx", "pets/[id].tsx", "pets/new.tsx"];
+
+        it("Builds a router entry for the app, alongside the hydration entry of every page.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: APP, router: true });
+            const { input } = plugin.options({});
+            // The pages' entries aren't loaded under the router, but the manifest records name each page's assets.
+            expect(Object.keys(input).sort()).toEqual([...pages(APP, APP_PAGES), `${APP}/__router`].sort());
+            expect(input[`${APP}/__router`]).toBe(ROUTER_ID);
+            expect(input[`${APP}/index.tsx`]).toBe("\0rapidrest-entry:" + `${APP}/index.tsx`);
+        });
+
+        it("Leaves the apps it isn't asked to route without a router entry.", async () => {
+            const { plugin } = await getHydrationPlugin({
+                appDir: [APP, "test/fixtures/vite-app"],
+                router: [APP],
+            });
+            const keys = Object.keys(plugin.options({}).input);
+            expect(keys).toContain(`${APP}/__router`);
+            expect(keys).toContain("test/fixtures/vite-app/page1.tsx");
+            expect(keys).not.toContain("test/fixtures/vite-app/__router");
+        });
+
+        it("Routes every app when given true, and none by default.", async () => {
+            const both = await getHydrationPlugin({ appDir: [APP, "test/fixtures/vite-app"], router: true });
+            const bothKeys = Object.keys(both.plugin.options({}).input);
+            expect(bothKeys).toContain(`${APP}/__router`);
+            expect(bothKeys).toContain("test/fixtures/vite-app/__router");
+
+            const none = await getHydrationPlugin({ appDir: APP });
+            expect(Object.keys(none.plugin.options({}).input)).toContain(`${APP}/index.tsx`);
+            expect(Object.keys(none.plugin.options({}).input)).not.toContain(`${APP}/__router`);
+        });
+    });
+
+    describe("resolveId()", () => {
+        it("Resolves a router entry id.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: APP, router: true });
+            expect(plugin.resolveId(ROUTER_ID)).toBe(ROUTER_ID);
+        });
+    });
+
+    describe("load()", () => {
+        it("Generates a router entry that starts the router over a route table of the app's pages, each a dynamic import.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: APP, router: true });
+
+            const code: string = plugin.load(ROUTER_ID);
+
+            expect(code).toContain(`import { startRouter } from "@rapidrest/react/client";`);
+            expect(code).toContain("startRouter([");
+            const abs = (rel: string) => JSON.stringify(path.resolve(APP, rel).replace(/\\/g, "/"));
+            for (const [template, rel] of [
+                ["/", "index.tsx"],
+                ["/pets", "pets.tsx"],
+                ["/pets/new", "pets/new.tsx"],
+                ["/pets/:id", "pets/[id].tsx"],
+                ["/nested", "nested/index.tsx"],
+                ["/boom", "boom.tsx"],
+            ]) {
+                expect(code).toContain(`{ template: ${JSON.stringify(template)}, load: () => import(${abs(rel)}) },`);
+            }
+            // Pages only: nothing underscore-prefixed (the layout).
+            expect(code).not.toContain("_layout");
+        });
+
+        it("Ignores a non-router, non-entry id.", async () => {
+            const { plugin } = await getHydrationPlugin({ appDir: APP, router: true });
+            expect(plugin.load("some/other/id.ts")).toBeUndefined();
+        });
+    });
+});
+
+describe("routerEntrySource", () => {
+    const routes = (code: string) => code.split("\n").filter((l) => l.startsWith("    {"));
+
+    it("Serves a route from the plain file, whichever the directory scan found first.", () => {
+        const dirFirst = routerEntrySource("app", ["pets/index.tsx", "pets.tsx"]);
+        const fileFirst = routerEntrySource("app", ["pets.tsx", "pets/index.tsx"]);
+
+        for (const code of [dirFirst, fileFirst]) {
+            expect(routes(code)).toHaveLength(1);
+            expect(code).toContain(JSON.stringify(path.resolve("app", "pets.tsx").replace(/\\/g, "/")));
+            expect(code).not.toContain("index.tsx");
+        }
+    });
+
+    it("Uses the index file when it's the only one.", () => {
+        const code = routerEntrySource("app", ["pets/index.tsx"]);
+        expect(routes(code)).toHaveLength(1);
+        expect(code).toContain(JSON.stringify(path.resolve("app", "pets/index.tsx").replace(/\\/g, "/")));
+    });
+
+    it("Makes an empty route table for an app with no pages.", () => {
+        expect(routerEntrySource("app", [])).toBe(
+            ['import { startRouter } from "@rapidrest/react/client";', "startRouter([", "]);"].join("\n"),
+        );
     });
 });

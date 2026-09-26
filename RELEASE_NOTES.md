@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added
+
+* **Client-side navigation, as a progressive enhancement of server rendering.** Set `router = true` on a
+  `ReactRoute` and build the client with `createViteConfig({ router: true })`. Every URL is still rendered on the
+  server in full, so first loads, reloads, crawlers and no-JavaScript browsers are unchanged; after the first load,
+  clicks between the app's pages fetch that page's data (the same URL, requested as JSON with an
+  `X-Rapidrest-Navigation` header) and swap the page in without loading a document. It is built on the file routes
+  you already have — no route table to maintain, no router dependency — and `_layout.tsx` stays the server-rendered
+  document around the page.
+  * `Link` (prefetches on hover and focus), `useRouter()`, `usePathname()` and `useParams()` are exported from
+    `@rapidrest/react/client`; ordinary `<a href>` links work as well.
+  * Anything the router can't be sure of is left to the browser: modified clicks, `target`/`download`/
+    `rel="external"`, other origins or apps, URLs with no page, redirects, error statuses, and pages that fail to load
+    or render.
+  * Back/forward and scroll position are restored, and only the latest of overlapping navigations is applied.
+  * What to know when adopting it: the JSON responses carry `Vary: X-Rapidrest-Navigation`, so a cache or CDN in
+    front of the app must respect `Vary`; and the layout doesn't re-render between pages, so keep per-page content
+    (including `<title>`) in the pages.
+
+### Changed
+
+* `ReactRoute` finds a page's Vite manifest entry by the entry's name first and its source path second.
+
 ### Fixed
 
 * **The dev server crashed with `Error: EPERM: operation not permitted, watch` on Windows whenever the client was
