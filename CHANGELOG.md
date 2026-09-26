@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed the dev server crashing on Windows, and staying down until the next file change, whenever a client rebuild replaced the Vite manifest: the `fs.watch` on it emitted an unhandled `'error'` (`EPERM`), which Node treats as fatal
+- Fixed live reload silently stopping after the first rebuild on platforms where the watcher survives the manifest being replaced but keeps watching the deleted file
+
 ## [2.0.0-beta.3] - 2026-09-15
 
 ### Changed

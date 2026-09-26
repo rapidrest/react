@@ -53,6 +53,10 @@ const _hashCache: Map<string, string> = new Map();
 const _devReloadEmitter = new EventEmitter();
 _devReloadEmitter.setMaxListeners(200);
 
+/** How many times, and how far apart, to look for the manifest again after a rebuild replaced it (see `watchManifest()`). */
+const MANIFEST_REWATCH_ATTEMPTS = 25;
+const MANIFEST_REWATCH_DELAY_MS = 200;
+
 const CACHE_BASE_KEY = "react.cache";
 const DEV_RELOAD_PATH = "/__rapidrest__/reload";
 
@@ -240,19 +244,9 @@ export class ReactRoute {
 
         // Dev: watch manifest file and signal connected browsers to reload after each build
         if (this.isDevMode() && manifestPath) {
-            let debounce: ReturnType<typeof setTimeout> | null = null;
-            try {
-                fs.watch(manifestPath, { persistent: false }, () => {
-                    if (debounce) clearTimeout(debounce);
-                    debounce = setTimeout(() => {
-                        _devReloadEmitter.emit("reload");
-                        debounce = null;
-                    }, 150);
-                });
-            } catch {
-                // Manifest doesn't exist yet — first build hasn't run. Watcher will be absent;
-                // browser reload will still happen via server-restart SSE connection drop.
-            }
+            // If it doesn't exist yet — the first build hasn't run — there's no watcher; browser reload will still
+            // happen via the server-restart SSE connection drop.
+            this.watchManifest(manifestPath);
         }
 
         // Scan the class loader for all classes that have been marked with @ReactService.
@@ -354,6 +348,62 @@ export class ReactRoute {
      * or misconfigured NODE_ENV in a real deployment fails closed (dev features OFF) instead of
      * failing open. Override in a subclass to opt a non-standard environment name into dev mode.
      */
+    /** Pending "reload" notification, so a burst of change events from one build produces a single reload. */
+    private manifestReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+    private scheduleReload(): void {
+        if (this.manifestReloadTimer) clearTimeout(this.manifestReloadTimer);
+        this.manifestReloadTimer = setTimeout(() => {
+            _devReloadEmitter.emit("reload");
+            this.manifestReloadTimer = null;
+        }, 150);
+    }
+
+    /**
+     * Dev only: watches the Vite manifest and tells connected browsers to reload after each build. Returns whether a
+     * watcher was established (`false` when the manifest doesn't exist).
+     *
+     * A build *replaces* the manifest rather than editing it in place, and what a watcher does about that depends on
+     * the platform: on Windows it emits an `'error'` event (`EPERM`) — which, with nothing listening, Node treats as
+     * fatal, taking the whole dev server down with it, and leaving it down until the next file change — while
+     * elsewhere it quietly keeps watching the file that no longer exists, deaf to every later build. So both an
+     * `'error'` and a `'rename'` (the file was replaced) end the watch and look for the new file (see
+     * `rewatchManifest()`).
+     */
+    private watchManifest(manifestPath: string): boolean {
+        try {
+            const watcher = fs.watch(manifestPath, { persistent: false }, (event) => {
+                this.scheduleReload();
+                if (event === "rename") {
+                    watcher.close();
+                    this.rewatchManifest(manifestPath);
+                }
+            });
+            watcher.on("error", () => {
+                watcher.close();
+                this.rewatchManifest(manifestPath);
+            });
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Watches the manifest again once a rebuild has put it back. The build deletes it before writing the new one, so it
+     * may not be there yet: keeps looking for a few seconds (unref'd, so it never holds the process open), and reloads
+     * the browsers as soon as it's found, since the build that replaced it has finished by then.
+     */
+    private rewatchManifest(manifestPath: string, attemptsLeft: number = MANIFEST_REWATCH_ATTEMPTS): void {
+        if (this.watchManifest(manifestPath)) {
+            this.scheduleReload();
+            return;
+        }
+        if (attemptsLeft > 1) {
+            setTimeout(() => this.rewatchManifest(manifestPath, attemptsLeft - 1), MANIFEST_REWATCH_DELAY_MS).unref();
+        }
+    }
+
     protected isDevMode(): boolean {
         const env = process.env.NODE_ENV;
         return env === "development" || env === "test" || !!process.env.VITEST || !!process.env.JEST_WORKER_ID;

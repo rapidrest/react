@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
+import { EventEmitter } from "events";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -141,6 +142,13 @@ beforeAll(async () => {
     process.env.NODE_ENV = original;
 });
 
+/** A stand-in for `fs.FSWatcher`: a real EventEmitter, so an unhandled 'error' throws, as it does for the real one. */
+function fakeWatcher(): any {
+    const watcher: any = new EventEmitter();
+    watcher.close = vi.fn();
+    return watcher;
+}
+
 describe("ReactRoute.init Tests", () => {
     let originalNodeEnv: string | undefined;
     let originalVitest: string | undefined;
@@ -205,7 +213,7 @@ describe("ReactRoute.init Tests", () => {
         let watchCallback: (() => void) | undefined;
         const watchSpy = vi.spyOn(fs, "watch").mockImplementation(((..._args: any[]) => {
             watchCallback = _args[2];
-            return { close: vi.fn() } as any;
+            return fakeWatcher();
         }) as any);
         try {
             const manifestPath = path.join(os.tmpdir(), "rrst-watch-fake-manifest.json");
@@ -237,6 +245,146 @@ describe("ReactRoute.init Tests", () => {
         } finally {
             watchSpy.mockRestore();
         }
+    });
+
+    describe("when a build replaces the manifest the dev server is watching", () => {
+        const manifestPath = path.join(os.tmpdir(), "rrst-watch-replaced-manifest.json");
+
+        /** Starts a route watching the manifest with `fs.watch` faked, and an SSE client listening for reloads. */
+        async function startWatching(watch: (...args: any[]) => any) {
+            const watchSpy = vi.spyOn(fs, "watch").mockImplementation(watch as any);
+            const route = new TestableReactRoute();
+            route.setLogger(noopLogger);
+            route.setManifestPath(manifestPath);
+            await route.callInit();
+            const sseRes = fakeResponse();
+            await route.get(fakeRequest({ path: "/__rapidrest__/reload" }), sseRes);
+            const reloads = () =>
+                sseRes.write.mock.calls.filter(([chunk]: [string]) => chunk === "data: reload\n\n").length;
+            return { watchSpy, reloads };
+        }
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+            vi.useRealTimers();
+        });
+
+        it("survives the watcher's error event instead of crashing the process, and watches the new file", async () => {
+            // On Windows the watcher emits an 'error' (EPERM) when the file is deleted and recreated. An EventEmitter
+            // with no 'error' listener throws when it emits one, which, uncaught, is what killed the dev server.
+            const watchers: any[] = [];
+            const { watchSpy, reloads } = await startWatching(() => {
+                const w = fakeWatcher();
+                watchers.push(w);
+                return w;
+            });
+            expect(watchSpy).toHaveBeenCalledTimes(1);
+            expect(watchers[0].listenerCount("error")).toBe(1);
+
+            vi.useFakeTimers();
+            const err = Object.assign(new Error("EPERM: operation not permitted, watch"), { code: "EPERM" });
+            expect(() => watchers[0].emit("error", err)).not.toThrow();
+            vi.advanceTimersByTime(150);
+
+            expect(watchers[0].close).toHaveBeenCalled();
+            expect(watchSpy).toHaveBeenCalledTimes(2);
+            expect(watchSpy).toHaveBeenLastCalledWith(manifestPath, { persistent: false }, expect.any(Function));
+            // The build that replaced the manifest has finished, so the browsers are told.
+            expect(reloads()).toBe(1);
+        });
+
+        it("keeps working after any number of rebuilds", async () => {
+            const watchers: any[] = [];
+            await startWatching(() => {
+                const w = fakeWatcher();
+                watchers.push(w);
+                return w;
+            });
+
+            for (let i = 0; i < 3; i++) {
+                expect(() => watchers[i].emit("error", new Error("EPERM"))).not.toThrow();
+            }
+
+            expect(watchers).toHaveLength(4);
+            expect(watchers[3].listenerCount("error")).toBe(1);
+        });
+
+        it("watches the new file when the old one was replaced (a rename), but not for a plain change", async () => {
+            const callbacks: Array<(event?: string) => void> = [];
+            const watchers: any[] = [];
+            const { watchSpy, reloads } = await startWatching(
+                (_path: string, _opts: any, cb: (event?: string) => void) => {
+                    callbacks.push(cb);
+                    const w = fakeWatcher();
+                    watchers.push(w);
+                    return w;
+                },
+            );
+            vi.useFakeTimers();
+
+            callbacks[0]("change");
+            vi.advanceTimersByTime(150);
+            expect(watchSpy).toHaveBeenCalledTimes(1);
+            expect(watchers[0].close).not.toHaveBeenCalled();
+            expect(reloads()).toBe(1);
+
+            callbacks[0]("rename");
+            vi.advanceTimersByTime(150);
+            expect(watchers[0].close).toHaveBeenCalled();
+            expect(watchSpy).toHaveBeenCalledTimes(2);
+            // One more reload for the rename and the successful re-watch together, not two.
+            expect(reloads()).toBe(2);
+        });
+
+        it("keeps looking for a manifest the build hasn't put back yet, then reloads once it's there", async () => {
+            let calls = 0;
+            const watchers: any[] = [];
+            const { watchSpy, reloads } = await startWatching(() => {
+                calls++;
+                // The first watch works; then the file is missing for the next 3 tries; then it's back.
+                if (calls >= 2 && calls <= 4) {
+                    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+                }
+                const w = fakeWatcher();
+                watchers.push(w);
+                return w;
+            });
+            vi.useFakeTimers();
+
+            watchers[0].emit("error", new Error("EPERM"));
+            expect(watchSpy).toHaveBeenCalledTimes(2);
+            vi.advanceTimersByTime(200 * 3);
+            expect(watchSpy).toHaveBeenCalledTimes(5);
+            vi.advanceTimersByTime(150);
+
+            expect(watchers).toHaveLength(2);
+            expect(reloads()).toBe(1);
+            // Found it, so it stops looking.
+            vi.advanceTimersByTime(200 * 5);
+            expect(watchSpy).toHaveBeenCalledTimes(5);
+        });
+
+        it("gives up after a while if the manifest never comes back, without throwing", async () => {
+            let calls = 0;
+            const watchers: any[] = [];
+            const { watchSpy, reloads } = await startWatching(() => {
+                calls++;
+                if (calls >= 2) {
+                    throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+                }
+                const w = fakeWatcher();
+                watchers.push(w);
+                return w;
+            });
+            vi.useFakeTimers();
+
+            watchers[0].emit("error", new Error("EPERM"));
+            vi.advanceTimersByTime(200 * 100);
+
+            // The original watch, plus 25 attempts to find the replacement, and no more.
+            expect(watchSpy).toHaveBeenCalledTimes(26);
+            expect(reloads()).toBe(0);
+        });
     });
 
     it("Does not throw when fs.watch fails synchronously (e.g. manifest path does not exist).", async () => {

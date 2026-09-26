@@ -1,5 +1,21 @@
 # Release Notes
 
+## Unreleased
+
+### Fixed
+
+* **The dev server crashed with `Error: EPERM: operation not permitted, watch` on Windows whenever the client was
+  rebuilt, and stayed down until the next file change** — so the browser hung, loading forever, until something else
+  touched a file. `ReactRoute` watches the Vite manifest to tell connected browsers to reload after each build. A
+  build *replaces* the manifest, and the `fs.watch` watcher answers that with an `'error'` event that nothing was
+  listening for; an unhandled `'error'` event is fatal in Node, and the `try/catch` around `fs.watch` only ever
+  covered it throwing synchronously. Now a watcher `'error'` ends that watch and looks for the new manifest (for up to
+  five seconds, as the build deletes the old one a moment before writing the next), then watches that and reloads the
+  browsers.
+* **Live reload could stop after the first rebuild.** Where the watcher doesn't error but keeps watching the manifest
+  that was replaced (it reports a `'rename'`), it never heard about any later build. A `'rename'` now also re-watches
+  the new file.
+
 ## v2.0.0-beta.3
 
 * Fixed `ReactRoute.resolveClientUrls()` never finding the Vite manifest entry for a page whose `appDir` points at a
