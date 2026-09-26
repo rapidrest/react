@@ -68,6 +68,7 @@
         "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-jsdoc": "^64.2.1",
         "globals": "^17.11.0",
+        "jsdom": "^30.0.1",
         "lodash-es": "^4.18.1",
         "mongodb": "^7.5.0",
         "nconf": "^0.13.0",

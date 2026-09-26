@@ -45,6 +45,34 @@ export function hydrateRoute(
 }
 
 export { startRouter } from "./router.js";
-export { Link, RouterProvider, useParams, usePathname, useRouter } from "./routerContext.js";
-export type { LinkProps, RouterApi, RouterLocation } from "./routerContext.js";
-export type { ClientRoute, NavigateOptions } from "./routerCore.js";
+export type { StartRouterOptions } from "./router.js";
+export { shouldSaveData, whenIdle } from "./idle.js";
+export {
+    createSearchParams,
+    isLinkActive,
+    Link,
+    NavLink,
+    RouterProvider,
+    useBlocker,
+    useLocation,
+    useMatch,
+    useNavigationEffects,
+    useParams,
+    usePathname,
+    useRouter,
+    useSearchParams,
+} from "./routerContext.js";
+export type {
+    BlockerOptions,
+    LinkProps,
+    NavLinkProps,
+    NavLinkState,
+    RouterApi,
+    RouterLocation,
+    SearchParamsInit,
+    SetSearchParams,
+    SetSearchParamsOptions,
+    UseRouter,
+} from "./routerContext.js";
+export type { PathMatch } from "./routeMatch.js";
+export type { ClientRoute, NavigateOptions, NavigationEffects, PrefetchOptions } from "./routerCore.js";

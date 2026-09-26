@@ -1,5 +1,64 @@
 # Release Notes
 
+## Unreleased
+
+Additive throughout — a minor release (v2.1.0). An app that opts into none of it behaves exactly as 2.0.0.
+
+### Added
+
+* **A persistent client shell (`_shell.tsx`).** A client layout next to `_layout.tsx` whose default export receives
+  `{ children, ...pageProps }` and is rendered inside the hydration root, around the page: the server renders
+  `Shell(Page)`, the browser hydrates it as one root, and on a navigation the router swaps the page inside the mounted
+  shell — a nav rail, an open compose window or a running timer keep their state, and only the page is a new instance.
+  The shell is built into the app's router entry (so it, and its stylesheets, are part of the first paint), reads the
+  router with the same hooks as a page, and gets the current page's props, which change on every navigation. It belongs
+  to the app directory: a navigation outside it is a real page load. A page that throws is caught inside the shell, which
+  stays mounted (a shell that throws gets the same reload-once recovery); the `_404`/`_500` pages and routes without
+  `router = true` never use it.
+* **Shallow navigation, and search-param and location hooks.** `navigate(url, { shallow: true })` (or
+  `{ remount: false }`), `<Link shallow>` and `<a data-router-shallow>` keep the page instance — its state, focus and
+  scroll — when the destination is another URL of the route on screen, updating only what reads the location; props are
+  fetched again only with `refetch: true`. `useSearchParams()` returns `[URLSearchParams, setSearchParams]`, whose setter
+  takes a value or a function of the current query, `{ replace }` and `{ shallow }` (shallow by default, as it exists to
+  change the query without losing the page). `useRouter()` and the new `useLocation()` report the `hash`, which is empty
+  on the server and while hydrating and follows right after. Going back and forward over shallow navigations is shallow.
+  The default of 2.0.0 stands: without `shallow`, a same-route query change still fetches and remounts the page.
+* **`pending`, focus, scroll and announcements.** `useRouter().pending` is true while a navigation is in flight (and
+  `pendingAttributes: true` marks the root `data-router-pending` and `aria-busy`). After a navigation the router's
+  focus, scroll and screen-reader behaviour is configurable with one `NavigationEffects` object — `focus` (a selector or
+  function, or `false`), `scroll` (`"top"`, `"preserve"`, `false`) and `announce` (text for a polite, visually hidden
+  `role="status"` live region the router adds to the document once) — given to `startRouter`/`createViteConfig({ router })`
+  for the app, or with `useNavigationEffects()` in the shell or a page (the page wins, and only while it is mounted).
+* **Idle prefetch, Save-Data and plain-link prefetch.** `router.prefetch(href, { data: false })` warms only a page's module
+  and stylesheets. `prefetch: { idle: [...] }` (in `startRouter` or `createViteConfig({ router: { prefetch } })`) warms
+  the listed pages once the browser is idle, skipped when the user asked to save data or is on a 2G-class connection;
+  `shouldSaveData()` and `whenIdle()` are exported. `prefetch: { links: true }` also warms the page of any plain
+  `<a href>` on hover, focus and press, as `Link` does (opt-in: it has the server compute props for every link the pointer
+  passes over). The same safety rules as `Link` apply to all of them.
+* **`NavLink` and `useMatch()`.** `NavLink` is a `Link` with `aria-current="page"` and an `activeClassName`/`className`
+  function while it goes to where the page is (`end` for an exact match, `matchQuery` to compare the query); `useMatch()`
+  matches the path against `/settings/*` or `/pets/:id` and returns `{ params, pathname }` or `null`. `Link` itself is
+  unchanged.
+* **A page's own title.** A page module may export `title` — a string, or a function of the page's props — used for the
+  document's `<title>` in the server's HTML (replacing the layout's, or added when it has none) and sent as the
+  navigation's `title`, so the tab follows the page. It goes ahead of the layout's `<title>`, which is the fallback as
+  before.
+* **Navigation blockers.** `useBlocker(when, message | { message, onBlock })` asks before a client navigation to another
+  page (link, `navigate()`, back/forward) with `confirm()` or an async `onBlock`, and brings up the browser's own prompt
+  before the tab closes or a link has to load a page. A refused back/forward is undone by going back through history to
+  the entry the user left, so the address bar and the page agree.
+* `createViteConfig({ router })` also takes an object: `appDirs` (default all), `prefetch`, `focus`, `scroll` and
+  `pendingAttributes`, built into each routed app's router entry.
+
+### Changed
+
+* `startRouter(routes, options?, win?, doc?)` takes its options second (the generated entry is unaffected; only a caller
+  that passed `win` and `doc` explicitly moves them along). The router platform and `RouterApi` gained the members the
+  features above use — of concern only to code that implements either.
+* The router now records the entry's place in the session history (`rrIndex`) and whether it was made shallow in
+  `history.state`, next to the scroll position it already kept.
+* Development: `jsdom` is a devDependency, for tests that hydrate and navigate with the real React reconciler.
+
 ## v2.0.0
 
 ### Added

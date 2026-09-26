@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
 import path from "node:path";
-import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
+import { fileToRouteTemplate, findAppDirShell, scanAppDirPages } from "./appDirScan.js";
 import { ROUTER_ENTRY_NAME } from "./routerCore.js";
 
 /**
@@ -41,15 +41,46 @@ export interface RapidRestViteOptions {
      * its data as it's needed. The matching `ReactRoute` sets `router = true`. See `routerCore.ts` for what it does,
      * and when it leaves navigating to the browser.
      *
+     * An app with a `_shell.tsx` next to its `_layout.tsx` has that shell imported into its router entry, to be rendered
+     * around every page and kept mounted between them (see `ReactRoute.router`).
+     *
+     * Pass an object to also configure the router (every option here becomes an argument of the generated
+     * `startRouter()` call, so it can't be a function — see `useNavigationEffects()` for those): `appDirs` picks the
+     * apps, as the array form does.
+     *
      * Default: no router; pages hydrate independently and every navigation loads a whole document.
      */
-    router?: boolean | string[];
+    router?: boolean | string[] | RouterViteOptions;
 
     /**
      * Additional Vite plugins to include (e.g. `@tailwindcss/vite`, `vite-plugin-svgr`).
      * These are appended after the built-in React and hydration plugins.
      */
     plugins?: any[];
+}
+
+/** The router settings `createViteConfig({ router: { ... } })` builds into each app's router entry. */
+export interface RouterEntryOptions {
+    /** Pages to prefetch when the browser is idle after the page has loaded (never when the user asked to save data), as links' `href`s. */
+    prefetch?: {
+        idle?: string[];
+        /** Fetch their data too, not only their code. Default `false`. */
+        data?: boolean;
+        /** Also warm the page of any plain link when it is pointed at, pressed on or focused (a `Link` always does). Default `false`. */
+        links?: boolean;
+    };
+    /** A CSS selector for the element focus moves to after a navigation, or `false` to leave focus alone. Default: the app's root. */
+    focus?: string | false;
+    /** How the page scrolls after a navigation: `"top"` (default), `"preserve"`, or `false` for not at all. */
+    scroll?: "top" | "preserve" | false;
+    /** Mark the root `data-router-pending` and `aria-busy` while a navigation is in flight. */
+    pendingAttributes?: boolean;
+}
+
+/** `createViteConfig({ router })` as an object: which apps get a router, and how it's set up. */
+export interface RouterViteOptions extends RouterEntryOptions {
+    /** The `appDir`s that get a router. Default: all of them. */
+    appDirs?: string[];
 }
 
 const VIRTUAL_PREFIX = "\0rapidrest-entry:";
@@ -76,7 +107,11 @@ function findPageEntries(appDir: string): Record<string, string> {
  * Where two files serve one route — `pets.tsx` and `pets/index.tsx` — the plain file wins, as it does when the server
  * resolves the URL.
  */
-export function routerEntrySource(appDir: string, pages: string[] = scanAppDirPages(appDir)): string {
+export function routerEntrySource(
+    appDir: string,
+    pages: string[] = scanAppDirPages(appDir),
+    options: RouterEntryOptions = {},
+): string {
     const byTemplate = new Map<string, string>();
     // (`pages` is in directory-scan order, which differs between filesystems — so both orders of a plain file and its
     // `index` twin are handled.)
@@ -91,11 +126,25 @@ export function routerEntrySource(appDir: string, pages: string[] = scanAppDirPa
         const absPath = path.resolve(appDir, relPath).replace(/\\/g, "/");
         return `    { template: ${JSON.stringify(template)}, load: () => import(${JSON.stringify(absPath)}) },`;
     });
+    // The app's shell is imported statically, so that it's in the entry (a shell is rendered on every page, from the
+    // first paint) rather than loaded on demand as a page is.
+    const shell = findAppDirShell(appDir);
+    const effects = {
+        ...(options.focus !== undefined ? { focus: options.focus } : {}),
+        ...(options.scroll !== undefined ? { scroll: options.scroll } : {}),
+    };
+    const settings = [
+        ...(shell ? ["shell: Shell"] : []),
+        ...(Object.keys(effects).length > 0 ? [`effects: ${JSON.stringify(effects)}`] : []),
+        ...(options.pendingAttributes ? ["pendingAttributes: true"] : []),
+        ...(options.prefetch ? [`prefetch: ${JSON.stringify(options.prefetch)}`] : []),
+    ];
     return [
         `import { startRouter } from "@rapidrest/react/client";`,
+        ...(shell ? [`import Shell from ${JSON.stringify(shell.replace(/\\/g, "/"))};`] : []),
         `startRouter([`,
         ...routes,
-        `]);`,
+        settings.length > 0 ? `], { ${settings.join(", ")} });` : `]);`,
     ].join("\n");
 }
 
@@ -113,7 +162,7 @@ export function routerEntrySource(appDir: string, pages: string[] = scanAppDirPa
  * came from, so merging multiple apps only changes what `options()` discovers, not how the
  * resulting virtual modules resolve or load.
  */
-function rapidRestHydrationPlugin(appDirs: string[], routerAppDirs: string[] = []) {
+function rapidRestHydrationPlugin(appDirs: string[], routerAppDirs: string[] = [], routerOptions: RouterEntryOptions = {}) {
     // Vite (rolldown) pre-fills `opts.input` with this resolved (and, for this framework, always
     // nonexistent) path whenever the project doesn't configure an explicit entry, before options()
     // ever runs. Captured via configResolved() so options() can drop exactly that placeholder -
@@ -166,7 +215,7 @@ function rapidRestHydrationPlugin(appDirs: string[], routerAppDirs: string[] = [
         },
 
         load(id: string) {
-            if (id.startsWith(ROUTER_PREFIX)) return routerEntrySource(id.slice(ROUTER_PREFIX.length));
+            if (id.startsWith(ROUTER_PREFIX)) return routerEntrySource(id.slice(ROUTER_PREFIX.length), undefined, routerOptions);
             if (!id.startsWith(VIRTUAL_PREFIX)) return;
             const sourcePath = id.slice(VIRTUAL_PREFIX.length);
             const absPath = path.resolve(sourcePath).replace(/\\/g, "/");
@@ -209,10 +258,18 @@ export async function createViteConfig(options: RapidRestViteOptions = {}) {
 
     const { appDir = "app", outDir = "dist/public", router = false, plugins: userPlugins = [] } = options;
     const appDirs = Array.isArray(appDir) ? appDir : [appDir];
-    const routerAppDirs = router === true ? appDirs : Array.isArray(router) ? router : [];
+    let routerAppDirs: string[] = [];
+    let routerOptions: RouterEntryOptions = {};
+    if (router === true) routerAppDirs = appDirs;
+    else if (Array.isArray(router)) routerAppDirs = router;
+    else if (router) {
+        const { appDirs: routed, ...settings } = router;
+        routerAppDirs = routed ?? appDirs;
+        routerOptions = settings;
+    }
 
     return defineConfig({
-        plugins: [react(), rapidRestHydrationPlugin(appDirs, routerAppDirs), ...userPlugins],
+        plugins: [react(), rapidRestHydrationPlugin(appDirs, routerAppDirs, routerOptions), ...userPlugins],
         build: {
             outDir,
             manifest: true,

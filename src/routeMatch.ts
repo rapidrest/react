@@ -54,6 +54,55 @@ export function matchRouteTemplate(template: string, actualPath: string): Record
     return params;
 }
 
+/** What `matchPathPattern()` found: the values the pattern's `:name` segments (and trailing `*`) captured, and the path it matched. */
+export interface PathMatch {
+    /** The captured values, URI-decoded. A trailing `*` is captured as `params["*"]` (the rest of the path, or `""`). */
+    params: Record<string, string>;
+    /** The part of the path the pattern matched: all of it for an exact match, its leading segments for a prefix one. */
+    pathname: string;
+}
+
+/**
+ * Matches a URL path against a pattern of literal segments, `:name` segments (which capture one segment each) and,
+ * optionally, a final `*` (which matches the rest of the path, however many segments that is, including none) — the
+ * patterns a link or a `useMatch()` names, like `/pets/:id` or `/settings/*`.
+ *
+ * With `end` (the default) the whole path has to match; without it the pattern only has to match the start of the path,
+ * on whole segments (`/settings` matches `/settings/profile` but not `/settingsx`), as if it ended in `/*`. Trailing
+ * slashes don't matter, and literal segments are compared as decoded (as in `matchRouteTemplate()`). Returns `null` when
+ * the path doesn't match, or a captured value isn't valid percent-encoding.
+ */
+export function matchPathPattern(pattern: string, pathname: string, end: boolean = true): PathMatch | null {
+    const patternParts = pattern.split("/").filter(Boolean);
+    const actualParts = pathname.split("/").filter(Boolean);
+    const wildcard = patternParts[patternParts.length - 1] === "*";
+    if (wildcard) patternParts.pop();
+    if (patternParts.length > actualParts.length) return null;
+    if (end && !wildcard && patternParts.length !== actualParts.length) return null;
+
+    const params: Record<string, string> = {};
+    for (let i = 0; i < patternParts.length; i++) {
+        const paramMatch = PARAM_TOKEN_RE.exec(patternParts[i]);
+        if (paramMatch) {
+            try {
+                params[paramMatch[1]] = decodeURIComponent(actualParts[i]);
+            } catch {
+                return null;
+            }
+        } else if (patternParts[i] !== decodeSegment(actualParts[i])) {
+            return null;
+        }
+    }
+    if (wildcard) {
+        try {
+            params["*"] = actualParts.slice(patternParts.length).map((part) => decodeURIComponent(part)).join("/");
+        } catch {
+            return null;
+        }
+    }
+    return { params, pathname: "/" + actualParts.slice(0, wildcard ? actualParts.length : patternParts.length).join("/") };
+}
+
 /**
  * The inverse of `matchRouteTemplate()`: substitutes every `:name` token in a route template with
  * the (URI-encoded) value from `params`. Returns `null` — never a partially-filled path — if any

@@ -26,7 +26,10 @@ function makeWindow(href = HREF) {
     const timers: Array<() => void> = [];
     const win: any = {
         location: { href, assign: vi.fn(), reload: vi.fn() },
-        history: { state: null as any, scrollRestoration: "auto", pushState: vi.fn(), replaceState: vi.fn() },
+        history: { state: null as any, length: 1, scrollRestoration: "auto", pushState: vi.fn(), replaceState: vi.fn(), go: vi.fn() },
+        confirm: vi.fn(() => true),
+        clearTimeout: vi.fn(),
+        removeEventListener: vi.fn(),
         scrollX: 10,
         scrollY: 20,
         scrollTo: vi.fn(),
@@ -56,6 +59,9 @@ function makeDocument(elements: Record<string, any> = {}) {
                 : links.filter((l) => l.rel === "stylesheet"),
         ),
         title: "before",
+        readyState: "complete",
+        body: { appendChild: vi.fn() },
+        querySelector: vi.fn(() => null),
         addEventListener: vi.fn((type: string, handler: (event: any) => void) => {
             (listeners[type] ??= []).push(handler);
         }),
@@ -268,10 +274,10 @@ describe("createBrowserPlatform", () => {
             const url = new URL("https://example.com/admin/users/8");
 
             platform.commitHistory(url, "push");
-            expect(win.history.pushState).toHaveBeenCalledWith({}, "", url.href);
+            expect(win.history.pushState).toHaveBeenCalledWith({ rrIndex: 1 }, "", url.href);
 
             platform.commitHistory(url, "replace");
-            expect(win.history.replaceState).toHaveBeenCalledWith({}, "", url.href);
+            expect(win.history.replaceState).toHaveBeenCalledWith({ rrIndex: 0 }, "", url.href);
         });
     });
 
@@ -392,9 +398,9 @@ describe("startRouter", () => {
     it("says so, and does nothing, when the server didn't render a router page", async () => {
         const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-        expect((await startRouter([], ...(Object.values(setup({ config: null })).slice(0, 2) as [any, any])))).toBeUndefined();
+        expect((await startRouter([], {}, ...(Object.values(setup({ config: null })).slice(0, 2) as [any, any])))).toBeUndefined();
         const noRoot = setup({ container: null });
-        expect(await startRouter([], noRoot.win, noRoot.doc)).toBeUndefined();
+        expect(await startRouter([], {}, noRoot.win, noRoot.doc)).toBeUndefined();
 
         expect(error).toHaveBeenCalledTimes(2);
         expect(error.mock.calls[0][0]).toContain("nothing to start on");
@@ -404,7 +410,7 @@ describe("startRouter", () => {
         const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
         const s = setup({ config: { ...config, route: "/nope" } });
 
-        expect(await startRouter(s.routes, s.win, s.doc)).toBeUndefined();
+        expect(await startRouter(s.routes, {}, s.win, s.doc)).toBeUndefined();
 
         expect(error.mock.calls[0][0]).toContain('"/nope"');
         expect(hydrateRoot).not.toHaveBeenCalled();
@@ -413,7 +419,7 @@ describe("startRouter", () => {
     it("hydrates the server's page into its root, from the props it embedded, with the router around it", async () => {
         const s = setup();
 
-        const router = await startRouter(s.routes, s.win, s.doc);
+        const router = await startRouter(s.routes, {}, s.win, s.doc);
 
         expect(router).toBeDefined();
         expect(s.load).toHaveBeenCalledTimes(1);
@@ -435,7 +441,7 @@ describe("startRouter", () => {
             headers: { get: () => "application/json" },
             json: async () => ({ route: "/users", props: {}, css: [], title: "Users" }),
         });
-        const router = await startRouter(s.routes, s.win, s.doc);
+        const router = await startRouter(s.routes, {}, s.win, s.doc);
 
         expect(await router!.navigate("/admin/users")).toBe(true);
 
@@ -446,14 +452,14 @@ describe("startRouter", () => {
 
     it("hydrates a page at the mount root, and one outside its prefix, without a crash over the params", async () => {
         const s = setup({ config: { ...config, prefix: "/other" } });
-        await startRouter(s.routes, s.win, s.doc);
+        await startRouter(s.routes, {}, s.win, s.doc);
         expect(renderToString(vi.mocked(hydrateRoot).mock.calls[0][1] as any)).toBe("<p>id=7 path=/admin/users/7 param=undefined</p>");
     });
 
     it("puts the scroll position back on the page a document loaded on when it was saved there, and saves it on leaving", async () => {
         const s = setup();
         s.win.history.state = { rrScroll: { x: 3, y: 400 } };
-        await startRouter(s.routes, s.win, s.doc);
+        await startRouter(s.routes, {}, s.win, s.doc);
         expect(s.win.scrollTo).toHaveBeenCalledWith(3, 400);
 
         s.win.history.state = { other: 1 };
@@ -463,24 +469,24 @@ describe("startRouter", () => {
 
     it("leaves the scroll position alone on a page there's nothing saved for", async () => {
         const s = setup();
-        await startRouter(s.routes, s.win, s.doc);
+        await startRouter(s.routes, {}, s.win, s.doc);
         expect(s.win.scrollTo).not.toHaveBeenCalled();
     });
 
     it("takes over scroll restoration, where the browser lets it be taken", async () => {
         const s = setup();
-        await startRouter(s.routes, s.win, s.doc);
+        await startRouter(s.routes, {}, s.win, s.doc);
         expect(s.win.history.scrollRestoration).toBe("manual");
 
         const bare = setup();
         delete bare.win.history.scrollRestoration;
-        await startRouter(bare.routes, bare.win, bare.doc);
+        await startRouter(bare.routes, {}, bare.win, bare.doc);
         expect("scrollRestoration" in bare.win.history).toBe(false);
     });
 
     it("navigates on a click on a link to one of the app's pages, and not otherwise", async () => {
         const s = setup();
-        const router = (await startRouter(s.routes, s.win, s.doc))!;
+        const router = (await startRouter(s.routes, {}, s.win, s.doc))!;
         const navigate = vi.spyOn(router, "navigate").mockResolvedValue(true);
         const onClick = s.docListeners.click[0];
 
@@ -510,7 +516,7 @@ describe("startRouter", () => {
 
     it("shows the page for where history went, on back and forward", async () => {
         const s = setup();
-        const router = (await startRouter(s.routes, s.win, s.doc))!;
+        const router = (await startRouter(s.routes, {}, s.win, s.doc))!;
         const popstate = vi.spyOn(router, "popstate").mockResolvedValue(true);
 
         s.winListeners.popstate[0]({});
@@ -520,7 +526,7 @@ describe("startRouter", () => {
 
     it("puts a page on screen when navigating, with the location, params and props it was navigated to", async () => {
         const s = setup();
-        const router = (await startRouter(s.routes, s.win, s.doc))!;
+        const router = (await startRouter(s.routes, {}, s.win, s.doc))!;
         s.win.fetch.mockResolvedValue({
             ok: true,
             redirected: false,
@@ -538,7 +544,7 @@ describe("startRouter", () => {
     describe("when a page crashes in the browser", () => {
         async function boundaryOnError() {
             const s = setup();
-            await startRouter(s.routes, s.win, s.doc);
+            await startRouter(s.routes, {}, s.win, s.doc);
             const element: any = vi.mocked(hydrateRoot).mock.calls[0][1];
             // RouterProvider > RouteBoundary > Page
             const boundary = element.props.children;

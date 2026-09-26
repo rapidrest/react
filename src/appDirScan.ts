@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseDynamicSegmentName } from "./routeMatch.js";
+import { SHELL_FILE_NAME } from "./routerCore.js";
 
 /**
  * Scans `appDir` and returns the appDir-relative, posix-separated paths of every page file
@@ -61,4 +62,18 @@ export function fileToRouteTemplate(relPath: string): string {
             return paramName ? `:${paramName}` : segment;
         });
     return "/" + segments.join("/");
+}
+
+/**
+ * The absolute path of `appDir`'s shell — `_shell.tsx` (or `_shell/index.tsx`), next to `_layout.tsx` — or `null` when the app has none. Like
+ * every `_`-prefixed file it is never a page (see `scanAppDirPages()`); the client build imports it into the app's
+ * router entry so that it can be rendered around the page (see `routerEntrySource()`).
+ */
+export function findAppDirShell(appDir: string): string | null {
+    // The same places the server looks for it (`ReactRoute.resolveAppFile()`, in the same order), as far as source goes.
+    for (const candidate of [".tsx", "/index.tsx", ".jsx", "/index.jsx"]) {
+        const file = path.resolve(appDir, SHELL_FILE_NAME + candidate);
+        if (fs.existsSync(file)) return file;
+    }
+    return null;
 }

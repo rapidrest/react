@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
-import { fillRouteTemplate, matchRouteTemplate, parseDynamicSegmentName } from "../src/routeMatch.js";
+import { fillRouteTemplate, matchPathPattern, matchRouteTemplate, parseDynamicSegmentName } from "../src/routeMatch.js";
 
 describe("parseDynamicSegmentName", () => {
     it("Extracts the name from a well-formed bracket segment.", () => {
@@ -106,5 +106,54 @@ describe("fillRouteTemplate", () => {
 
     it("Ignores extra params not referenced by the template.", () => {
         expect(fillRouteTemplate("/pets/:id", { id: "42", unused: "x" })).toBe("/pets/42");
+    });
+});
+
+describe("matchPathPattern", () => {
+    it("Matches a literal pattern exactly, ignoring trailing and doubled slashes.", () => {
+        expect(matchPathPattern("/pets", "/pets")).toEqual({ params: {}, pathname: "/pets" });
+        expect(matchPathPattern("/pets/", "//pets/")).toEqual({ params: {}, pathname: "/pets" });
+        expect(matchPathPattern("/", "/")).toEqual({ params: {}, pathname: "/" });
+    });
+
+    it("Captures :name segments, decoded.", () => {
+        expect(matchPathPattern("/pets/:id", "/pets/a%20b")?.params).toEqual({ id: "a b" });
+        expect(matchPathPattern("/pets/:id/reviews/:rid", "/pets/1/reviews/2")?.params).toEqual({ id: "1", rid: "2" });
+    });
+
+    it("Compares literal segments as decoded, and case-sensitively.", () => {
+        expect(matchPathPattern("/café", "/caf%C3%A9")).not.toBeNull();
+        expect(matchPathPattern("/pets", "/Pets")).toBeNull();
+        // A malformed escape is compared as written.
+        expect(matchPathPattern("/a%zz", "/a%zz")).not.toBeNull();
+    });
+
+    it("Needs the whole path to match by default, so a longer or shorter path doesn't.", () => {
+        expect(matchPathPattern("/pets", "/pets/1")).toBeNull();
+        expect(matchPathPattern("/pets/:id", "/pets")).toBeNull();
+        expect(matchPathPattern("/pets", "/other")).toBeNull();
+    });
+
+    it("Matches the start of the path, on whole segments, with end: false.", () => {
+        expect(matchPathPattern("/settings", "/settings/profile", false)).toEqual({ params: {}, pathname: "/settings" });
+        expect(matchPathPattern("/settings", "/settings", false)).not.toBeNull();
+        expect(matchPathPattern("/settings", "/settingsx", false)).toBeNull();
+        expect(matchPathPattern("/pets/:id", "/pets/7/reviews", false)).toEqual({ params: { id: "7" }, pathname: "/pets/7" });
+    });
+
+    it("Matches the rest of the path with a trailing *, and captures it as params['*'].", () => {
+        expect(matchPathPattern("/settings/*", "/settings/profile/edit")).toEqual({
+            params: { "*": "profile/edit" },
+            pathname: "/settings/profile/edit",
+        });
+        expect(matchPathPattern("/settings/*", "/settings")?.params).toEqual({ "*": "" });
+        expect(matchPathPattern("/settings/*", "/other/x")).toBeNull();
+        expect(matchPathPattern("/*", "/a/b")?.params).toEqual({ "*": "a/b" });
+        expect(matchPathPattern("/pets/:id/*", "/pets/7/x%20y")?.params).toEqual({ id: "7", "*": "x y" });
+    });
+
+    it("Is null when a captured value isn't valid percent-encoding.", () => {
+        expect(matchPathPattern("/pets/:id", "/pets/%E0%A4%A")).toBeNull();
+        expect(matchPathPattern("/pets/*", "/pets/%E0%A4%A")).toBeNull();
     });
 });

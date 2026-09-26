@@ -234,6 +234,12 @@ describe("Router", () => {
             }),
             settle: vi.fn(),
             hardNavigate: vi.fn(),
+            update: vi.fn(),
+            setPending: vi.fn(),
+            historyEntry: vi.fn(() => ({ index: null, shallow: false })),
+            historyGo: vi.fn(),
+            announce: vi.fn(),
+            confirm: vi.fn(() => true),
         };
     });
 

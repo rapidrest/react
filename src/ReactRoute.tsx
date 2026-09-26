@@ -14,7 +14,7 @@ import { renderToString } from "react-dom/server";
 import { ObjectDecorators, RedisStore } from "@rapidrest/core";
 import { fileToRouteTemplate, scanAppDirPages } from "./appDirScan.js";
 import { RouterProvider } from "./routerContext.js";
-import { NAVIGATION_HEADER, ROUTER_CONFIG_ID, ROUTER_ENTRY_NAME, type RouterConfig } from "./routerCore.js";
+import { NAVIGATION_HEADER, ROUTER_CONFIG_ID, ROUTER_ENTRY_NAME, type RouterConfig, SHELL_FILE_NAME } from "./routerCore.js";
 import {
     fillRouteTemplate,
     parseDynamicSegmentName,
@@ -71,6 +71,27 @@ function extractTitle(html: string): string | undefined {
     if (!match) return undefined;
     const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#x27": "'", "#39": "'" };
     return match[1].replace(/<!--[\s\S]*?-->/g, "").replace(/&(amp|lt|gt|quot|#x27|#39);/g, (_, name: string) => entities[name]);
+}
+
+/** `text` as it has to be written in HTML for a browser to read it back: the characters React escapes in text. */
+function escapeHtmlText(text: string): string {
+    return text.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" })[char]!);
+}
+
+/**
+ * `html` with the document's `<title>` set to `title`: the first `<title>` in its `<head>` has its text replaced (and
+ * keeps its attributes), or, if the head has none, one is added at the end of it. A document with no `<head>` is
+ * returned as it was — the title has nowhere to go, and a `<title>` in the body (an SVG's) isn't the document's.
+ */
+function applyTitle(html: string, title: string): string {
+    const head = /<head(?:\s[^>]*)?>[\s\S]*?<\/head>/i.exec(html);
+    if (!head) return html;
+    const titleTag = /<title(\s[^>]*)?>[\s\S]*?<\/title>/i;
+    const text = escapeHtmlText(title);
+    const replaced = titleTag.test(head[0])
+        ? head[0].replace(titleTag, (_tag, attributes?: string) => `<title${attributes ?? ""}>${text}</title>`)
+        : head[0].replace(/<\/head>$/i, () => `<title>${text}</title></head>`);
+    return html.slice(0, head.index) + replaced + html.slice(head.index + head[0].length);
 }
 
 /** A directory's entries, listed once (see `ReactRoute.listDir()`). */
@@ -143,6 +164,8 @@ export interface ResolvedAppFile {
  *  - `app/_layout.tsx` — global HTML wrapper (loaded once, required)
  *  - `app/_404.tsx`    — 404 error page (optional)
  *  - `app/_500.tsx`    — 500 error page (optional)
+ *  - `app/_shell.tsx`  — persistent client shell around the page, kept mounted between pages by the router
+ *    (optional; only with `router = true`)
  *  - `app/pets.tsx`    — serves GET /pets
  *  - `app/pets/index.tsx` — also serves GET /pets (index convention)
  *  - `app/pets/[id].tsx` or `app/pets/[id]/index.tsx` — serves GET /pets/:id; the captured value
@@ -154,6 +177,8 @@ export interface ResolvedAppFile {
  * Each page file exports:
  *  - `default`         — React component (required)
  *  - `fetchProps`      — async function (req) → props object (optional)
+ *  - `title`           — the document's `<title>` for the page: a string, or a function of the page's props
+ *    returning one (optional; goes ahead of the layout's own `<title>`)
  *  - `getStaticPaths`  — async function () → array of `{ [param]: string }` objects, one per
  *    concrete instance of a dynamic route this page should statically export (optional; a
  *    `@ReactService` matching the same dynamic route may also implement `getStaticPaths()` for
@@ -198,6 +223,11 @@ export class ReactRoute {
      * served as complete HTML at its own URL (so it works with JavaScript off, for crawlers, and as the first load),
      * and whenever the client isn't sure it can navigate faithfully — an unknown route, a redirect, an error page, any
      * failure — the browser simply loads the URL the ordinary way. See `routerCore.ts`.
+     *
+     * A router app can also have a persistent shell, `_shell.tsx` next to `_layout.tsx`: a client layout, rendered inside
+     * the hydration root around the page and kept mounted as the router swaps the pages in and out inside it. It gets the
+     * page's props and the page as `children`. It is used only under the router (there is nothing to keep mounted without
+     * one), never around the `_404`/`_500` pages (which aren't hydrated), and it isn't a page of its own.
      */
     protected readonly router: boolean = false;
 
@@ -235,6 +265,9 @@ export class ReactRoute {
      * have been computed at all if a `fetchProps` call is what threw in the first place.
      */
     private layout: ComponentType<PropsWithChildren<Record<string, any>>> | null = null;
+
+    /** The app's persistent shell (`_shell.tsx`), once a request that needs it has loaded it. See `loadShell()`. */
+    private shell: ComponentType<PropsWithChildren<Record<string, any>>> | null = null;
 
     /**
      * Caches the framework's own `_layout`/`_404`/`_500` lookups (production only — the app dir's file set is fixed once
@@ -775,6 +808,32 @@ export class ReactRoute {
     }
 
     /**
+     * The app's persistent shell, or `null` when it has none (`_shell.tsx`, next to `_layout.tsx`). Only a router app has
+     * one. Looked up like the layout (the literal name only, cached in production), but not remembered when it isn't
+     * there, so that adding the file to a running dev server is noticed.
+     */
+    private async loadShell(): Promise<ComponentType<PropsWithChildren<Record<string, any>>> | null> {
+        if (!this.router) return null;
+        if (this.shell) return this.shell;
+        const resolved = await this.resolveAppFile(this.appDir, SHELL_FILE_NAME, true);
+        if (!resolved) return null;
+        const mod = await import(pathToFileURL(resolved.file).href);
+        this.shell = mod.default;
+        return this.shell;
+    }
+
+    /**
+     * The page's own title, when its module exports one — `export const title = "Pets"`, or `export function title(props)`
+     * returning the title for the page's props (the very props the page renders with) — else `undefined`. It's what the
+     * `<title>` of the document is set to, ahead of what the layout renders for it (see `applyTitle()`), and what a
+     * client navigation sets `document.title` to.
+     */
+    private async pageTitle(mod: any, props: any): Promise<string | undefined> {
+        const title = typeof mod.title === "function" ? await mod.title(props) : mod.title;
+        return typeof title === "string" ? title : undefined;
+    }
+
+    /**
      * The `<title>` the layout renders for a page's props, for a client navigation (the browser doesn't render the
      * layout again, so the title would otherwise stay the first page's). `undefined` when there's no layout or it has no
      * title; a layout that fails to render costs the navigation its title, not the navigation.
@@ -835,6 +894,10 @@ export class ReactRoute {
             const shouldHydrate = (this.hydrate || this.router) && httpStatus === 200;
             const Layout = this.layout;
             const pageElement = <PageComponent {...props} />;
+            // The persistent shell, if the app has one, is rendered around the page inside the hydration root — the very
+            // tree the browser hydrates, and then keeps mounted while the router swaps the page inside it.
+            const Shell = shouldHydrate ? await this.loadShell() : null;
+            const shelled = Shell ? <Shell {...props}>{pageElement}</Shell> : pageElement;
             // Under the router the page renders inside the same `RouterProvider` the browser hydrates it in, so that
             // anything reading the location (a nav highlighting the current link) renders identically on both sides.
             const routed = this.router ? (
@@ -846,16 +909,18 @@ export class ReactRoute {
                         route: template,
                     }}
                 >
-                    {pageElement}
+                    {shelled}
                 </RouterProvider>
             ) : pageElement;
             const content = shouldHydrate ? <div id={this.hydrateRootId}>{routed}</div> : pageElement;
 
             html = renderToString(Layout ? <Layout {...props}>{content}</Layout> : content);
+            const title = await this.pageTitle(mod, props);
+            if (title !== undefined) html = applyTitle(html, title);
 
             if (shouldHydrate) {
                 html = this.router
-                    ? this.injectRouterAssets(html, props, pagePath, template)
+                    ? this.injectRouterAssets(html, props, pagePath, template, !!Shell)
                     : this.injectHydrationAssets(html, props, pagePath);
             }
         } catch (err) {
@@ -1057,7 +1122,8 @@ export class ReactRoute {
             const mod = await import(pathToFileURL(resolved.file).href);
             const props = await this.buildProps(req, resolved.template, mod, resolved.params);
             const { css } = this.resolveRouterAssets(resolved.file);
-            const title = await this.renderTitle(props);
+            // The page's own title first, as on the server's render of it, then the layout's.
+            const title = (await this.pageTitle(mod, props)) ?? (await this.renderTitle(props));
             return { status: 200, json: JSON.stringify({ route: resolved.template, props, css, ...(title !== undefined ? { title } : {}) }) };
         } catch (err) {
             this.logger.error(`[ReactRoute] Error computing props for navigation to "${req.path}":`, err);
@@ -1495,7 +1561,7 @@ export class ReactRoute {
         };
     }
 
-    private injectRouterAssets(html: string, props: any, pagePath: string, template: string): string {
+    private injectRouterAssets(html: string, props: any, pagePath: string, template: string, shell: boolean): string {
         const { entry, css, preload } = this.resolveRouterAssets(pagePath);
         const config: RouterConfig = {
             prefix: this.routePrefix,
@@ -1503,6 +1569,8 @@ export class ReactRoute {
             rootId: this.hydrateRootId,
             propsId: this.hydratePropsId,
             css,
+            // Whether what's in the root has the shell around the page, which is what the client must hydrate it as.
+            ...(shell ? { shell } : {}),
         };
         const configTag = `<script type="application/json" id="${ROUTER_CONFIG_ID}">${this.escapeForInlineScript(JSON.stringify(config))}</script>`;
         const propsTag = `<script type="application/json" id="${this.hydratePropsId}">${this.escapeForInlineScript(JSON.stringify(props))}</script>`;
