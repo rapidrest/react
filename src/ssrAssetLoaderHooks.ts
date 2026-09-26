@@ -4,8 +4,14 @@
 ///////////////////////////////////////////////////////////////////////////////
 /**
  * Node module customization hook (registered via `register()` in `ReactRoute.tsx`) that makes a
- * plain `import "*.css"` (and other static-asset extensions) a safe no-op when a page/layout
+ * plain `import "*.css"` (and `.scss`, `.sass`, `.less`) a safe no-op when a page/layout
  * module gets loaded via `import()` for server-side rendering.
+ *
+ * Only that: a stylesheet imported for its effect. What the import *returns* isn't something the server can know —
+ * a CSS Module (`import styles from "./x.module.css"`) has class names Vite generates for the client build, so
+ * `styles.card` is `undefined` here and the server-rendered element has no class, and a named import
+ * (`import { card } from ...`) doesn't link at all. CSS Modules aren't supported in a page that is server-rendered
+ * (use a plain stylesheet); nor are imports of images or fonts, whose URLs are the build's to decide.
  *
  * This is what makes this package's documented "import your stylesheet anywhere in the entry's
  * module graph" pattern (used so Vite's build can discover which CSS belongs to which client

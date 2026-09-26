@@ -160,7 +160,54 @@ describe("exportStaticSite against a real server", () => {
         expect(result.pages).toEqual([]);
         expect(result.errors).toEqual([]);
         expect(fs.readFileSync(path.join(tmpDir, "app.js"), "utf-8")).toContain("hydrated");
-        expect(fs.readFileSync(path.join(tmpDir, ".vite", "manifest.json"), "utf-8")).toContain("{}");
+    });
+
+    it("Copies the client build, less Vite's manifest and every dot folder or dotfile other than .well-known.", async () => {
+        const assets = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-assets-"));
+        try {
+            fs.mkdirSync(path.join(assets, ".vite"));
+            fs.writeFileSync(path.join(assets, ".vite", "manifest.json"), "{}");
+            fs.writeFileSync(path.join(assets, ".env"), "SECRET=1");
+            fs.mkdirSync(path.join(assets, ".well-known"));
+            fs.writeFileSync(path.join(assets, ".well-known", "assetlinks.json"), "[]");
+            fs.mkdirSync(path.join(assets, "assets"));
+            fs.writeFileSync(path.join(assets, "assets", "app.js"), "hydrated");
+
+            await exportStaticSite({
+                port: server.port,
+                appDir: "test/fixtures/does-not-exist",
+                routePrefix: "",
+                outDir: tmpDir,
+                assetsDir: assets,
+                notFound: false,
+            });
+
+            expect(fs.readFileSync(path.join(tmpDir, "assets", "app.js"), "utf-8")).toBe("hydrated");
+            expect(fs.readFileSync(path.join(tmpDir, ".well-known", "assetlinks.json"), "utf-8")).toBe("[]");
+            expect(fs.existsSync(path.join(tmpDir, ".vite"))).toBe(false);
+            expect(fs.existsSync(path.join(tmpDir, ".env"))).toBe(false);
+        } finally {
+            fs.rmSync(assets, { recursive: true, force: true });
+        }
+    });
+
+    it("Doesn't let a file of the client build overwrite a page that was crawled.", async () => {
+        const assets = fs.mkdtempSync(path.join(os.tmpdir(), "rapidreact-assets-"));
+        try {
+            fs.writeFileSync(path.join(assets, "index.html"), "<p>from the client build</p>");
+            await exportStaticSite({
+                port: server.port,
+                appDir: "test/app",
+                routePrefix: "/app",
+                outDir: tmpDir,
+                assetsDir: assets,
+                notFound: false,
+                exclude: [/^\/(?!$)/],
+            });
+            expect(fs.readFileSync(path.join(tmpDir, "index.html"), "utf-8")).toContain("Home");
+        } finally {
+            fs.rmSync(assets, { recursive: true, force: true });
+        }
     });
 
     it("Does nothing when assetsDir does not exist and there is nothing to crawl.", async () => {
@@ -304,6 +351,22 @@ describe("exportStaticSite against a real server", () => {
         expect(paths).toContain("/pets/featured");
     });
 
+    it("Excludes every route a global or sticky RegExp matches, not every other one.", async () => {
+        const result = await exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+            // `g` remembers where it last matched, which used to let alternate routes through.
+            exclude: [/^\/(pets|di-pets|auth\/login)/g, /^\/$/y],
+        });
+
+        expect(result.pages).toEqual([]);
+        expect(result.errors).toEqual([]);
+    });
+
     it("Excludes a dynamic route's enumerated concrete instances when a route template is excluded.", async () => {
         const result = await withStaticExportMode(() => exportStaticSite({
             port: server.port,
@@ -438,6 +501,28 @@ describe("exportStaticSite dynamic routes", () => {
             return new Response("<html>Page</html>", { status: 200 });
         });
     }
+
+    it("Reports a redirect as an error instead of exporting where it leads as the page.", async () => {
+        const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url: any, init: any) => {
+            expect(init?.redirect).toBe("manual");
+            return new Response(null, { status: 302, headers: { location: "/login" } });
+        });
+        try {
+            const result = await exportStaticSite({
+                port: 1,
+                appDir: "test/fixtures/vite-app-dynamic",
+                outDir: tmpDir,
+                assetsDir: path.join(tmpDir, "__no_assets__"),
+                notFound: false,
+            });
+
+            expect(result.pages).toEqual([]);
+            expect(result.errors.length).toBeGreaterThan(0);
+            expect(result.errors.every((e) => (e as any).status === 302)).toBe(true);
+        } finally {
+            fetchSpy.mockRestore();
+        }
+    });
 
     it("Crawls only the literal discovered route, reporting the dynamic template separately " +
         "instead of fetching it as a literal (and incorrect) URL.", async () => {

@@ -50,14 +50,18 @@ export interface DocumentLike {
     head: { appendChild(node: any): any };
     createElement(tag: string): any;
     getElementById(id: string): any;
-    querySelectorAll(selector: string): ArrayLike<{ href: string; remove(): void }>;
+    querySelectorAll(selector: string): ArrayLike<any>;
     title: string;
     addEventListener(type: string, handler: (event: any) => void): void;
 }
 
-/** Reads and parses the JSON in the `<script type="application/json">` with the given id, or `undefined`. */
-export function readJsonScript(doc: Pick<DocumentLike, "getElementById">, id: string): any {
-    const element = doc.getElementById(id);
+/**
+ * Reads and parses the JSON in the `<script type="application/json">` with the given id, or `undefined`. Looked up among
+ * the JSON scripts, not by `getElementById`, which answers with the first element of that id in the document — any that
+ * page content with a chosen `id` (a comment's anchor named `react-props`) puts ahead of the server's own.
+ */
+export function readJsonScript(doc: Pick<DocumentLike, "querySelectorAll">, id: string): any {
+    const element = Array.from(doc.querySelectorAll('script[type="application/json"]')).find((script) => script.id === id);
     if (!element) return undefined;
     try {
         return JSON.parse(element.textContent);
@@ -274,6 +278,11 @@ export async function startRouter(
     root = hydrateRoot(container, element({ component: module.default, props, url, params, route: route.template }));
 
     if (win.history.scrollRestoration !== undefined) win.history.scrollRestoration = "manual";
+    // The router keeps scroll positions itself (the browser's restoring is off, so it can restore a page it swapped in),
+    // which includes the page this document loaded on: back to it from a full page load, or a reload, puts it back.
+    const saved = win.history.state?.rrScroll;
+    if (saved) win.scrollTo(saved.x, saved.y);
+    win.addEventListener("pagehide", () => platform.saveScroll());
     win.addEventListener("popstate", () => void router.popstate());
     doc.addEventListener("click", (event) => {
         const anchor = (event.target as { closest?: (selector: string) => any } | null)?.closest?.("a") ?? null;

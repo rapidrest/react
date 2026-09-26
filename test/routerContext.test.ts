@@ -57,9 +57,37 @@ describe("hooks", () => {
         const { value } = renderAndCapture(() => useRouter(), { location: LOCATION, api });
 
         expect(value).toMatchObject(LOCATION);
-        expect(value.navigate).toBe(api.navigate);
-        expect(value.prefetch).toBe(api.prefetch);
-        expect(value.canHandle).toBe(api.canHandle);
+        void value.navigate("/x", { replace: true });
+        value.prefetch("/y");
+        value.canHandle("/z");
+        expect(api.navigate).toHaveBeenCalledWith("/x", { replace: true });
+        expect(api.prefetch).toHaveBeenCalledWith("/y");
+        expect(api.canHandle).toHaveBeenCalledWith("/z");
+    });
+
+    it("work with a real router, whose methods live on its prototype where spreading it would leave them behind", async () => {
+        class RealRouter {
+            calls: string[] = [];
+            constructor(private readonly prefix: string) {}
+            async navigate(to: string) {
+                this.calls.push(this.prefix + to);
+                return true;
+            }
+            prefetch(): void {
+                this.calls.push("prefetched");
+            }
+            canHandle() {
+                return true;
+            }
+        }
+        const api = new RealRouter("/admin");
+        const { value } = renderAndCapture(() => useRouter(), { location: LOCATION, api: api as any });
+
+        expect(typeof value.navigate).toBe("function");
+        expect(await value.navigate("/users")).toBe(true);
+        // Called as the router's own method, so its `this` is right.
+        expect(api.calls).toEqual(["/admin/users"]);
+        expect(value.canHandle("/users")).toBe(true);
     });
 
     it("give the path and the params directly", () => {
@@ -84,11 +112,26 @@ describe("hooks", () => {
 
     it("outside a provider in a browser, navigate() loads the page the ordinary way", async () => {
         const assign = vi.fn();
-        (globalThis as any).window = { location: { assign } };
+        (globalThis as any).window = { location: { assign, href: "https://example.com/here" } };
         try {
             const { value } = renderAndCapture(() => useRouter());
             expect(await value.navigate("/somewhere")).toBe(false);
             expect(assign).toHaveBeenCalledWith("/somewhere");
+        } finally {
+            delete (globalThis as any).window;
+        }
+    });
+
+    it("outside a provider in a browser, navigate() doesn't send the page anywhere that isn't an http(s) URL", async () => {
+        const assign = vi.fn();
+        (globalThis as any).window = { location: { assign, href: "https://example.com/here" } };
+        try {
+            const { value } = renderAndCapture(() => useRouter());
+            expect(await value.navigate("javascript:alert(1)")).toBe(false);
+            expect(await value.navigate("data:text/html,<script>alert(1)</script>")).toBe(false);
+            expect(assign).not.toHaveBeenCalled();
+            expect(await value.navigate("https://other.example/x")).toBe(false);
+            expect(assign).toHaveBeenCalledWith("https://other.example/x");
         } finally {
             delete (globalThis as any).window;
         }

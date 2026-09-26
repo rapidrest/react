@@ -107,6 +107,9 @@ export interface RouterPlatform {
 /** How long a prefetched page stays usable, in milliseconds. */
 export const PREFETCH_TTL_MS = 30_000;
 
+/** How many prefetched pages are kept at once; pointing at more links than this drops the oldest. */
+export const PREFETCH_MAX = 32;
+
 /**
  * Orders two route templates by specificity, so that where several match one path the most specific is tried first:
  * at the first segment where they differ, a literal outranks a `:param`. This is the precedence the server's
@@ -166,6 +169,16 @@ export function resolveTarget(href: string, base: string): URL | null {
     }
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     return url.origin === baseUrl.origin ? url : null;
+}
+
+/** Whether `href`, resolved against `base`, is an `http(s)` URL — the only kind a page is ever sent to (never `javascript:`). */
+export function isHttpUrl(href: string, base: string): boolean {
+    try {
+        const { protocol } = new URL(href, base);
+        return protocol === "http:" || protocol === "https:";
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -250,6 +263,8 @@ export class Router {
     private navigation = 0;
     private controller: AbortController | null = null;
     private readonly prefetched = new Map<string, Prefetched>();
+    /** The path and query of the page on screen (its `#fragment` is the browser's business, not a page of its own). */
+    private shown: string;
 
     constructor(
         routes: ClientRoute[],
@@ -258,6 +273,7 @@ export class Router {
         private readonly now: () => number = Date.now,
     ) {
         this.routes = sortRoutes(routes);
+        this.shown = Router.key(platform.location());
     }
 
     private static key(url: URL): string {
@@ -287,6 +303,9 @@ export class Router {
         const target = resolveTarget(href, this.platform.location().href);
         const match = target && this.match(target);
         if (!target || !match) return;
+        // A page whose route starts with a `:param` answers for any first segment of the URL — `/logout` as much as
+        // `/pets`, and something else on the server may be what serves that. Warming a page must never run one of those.
+        if (match.route.template.startsWith("/:")) return;
         const key = Router.key(target);
         const existing = this.prefetched.get(key);
         if (existing && this.now() - existing.at < PREFETCH_TTL_MS) return;
@@ -294,6 +313,11 @@ export class Router {
     }
 
     private start(url: URL, route: ClientRoute, signal: AbortSignal, key: string): Prefetched {
+        // Expired entries are otherwise only dropped when the same page is asked for again, which most never are.
+        for (const [oldKey, old] of this.prefetched) {
+            if (this.now() - old.at >= PREFETCH_TTL_MS || this.prefetched.size >= PREFETCH_MAX) this.prefetched.delete(oldKey);
+            else break;
+        }
         const entry: Prefetched = {
             at: this.now(),
             signal,
@@ -320,6 +344,12 @@ export class Router {
         const current = this.platform.location();
         const target = resolveTarget(to, current.href);
         if (!target) return this.fallBack(to);
+        // Another `#fragment` of the page showing isn't a navigation: it's a history entry and a scroll.
+        if (isHashChange(target, current)) {
+            this.platform.commitHistory(target, options.replace ? "replace" : "push");
+            this.platform.settle(target, { restore: false, scroll: options.scroll !== false });
+            return true;
+        }
         const match = this.match(target);
         if (!match) return this.fallBack(target.href);
 
@@ -330,13 +360,17 @@ export class Router {
     /** Shows the page for the document's URL after the browser moved through history (back/forward). */
     async popstate(): Promise<boolean> {
         const target = this.platform.location();
+        // Only the `#fragment` changed (the browser fires this for following one too): the page on screen is the page, and
+        // the browser has moved to the fragment itself — fetching and rendering it all over would only lose its state.
+        if (Router.key(target) === this.shown) return true;
         const match = this.match(target);
         if (!match) return this.fallBack(target.href);
         return this.go(target, match, null, true, true);
     }
 
     private fallBack(url: string): false {
-        this.platform.hardNavigate(url);
+        // Anything but an `http(s)` URL (a `javascript:` one an app passed on from a query string, say) is not somewhere to go.
+        if (isHttpUrl(url, this.platform.location().href)) this.platform.hardNavigate(url);
         return false;
     }
 
@@ -373,6 +407,8 @@ export class Router {
             // Going back or forward, the history entry is already the destination's, so what's on screen is not its
             // scroll position to save — saving it would overwrite the one about to be restored.
             if (!restore) this.platform.saveScroll();
+            // Before the page renders, so a title the page sets for itself (React hoists a `<title>` it renders) wins.
+            if (payload.title !== undefined) this.platform.setTitle(payload.title);
             if (mode) this.platform.commitHistory(target, mode);
             this.platform.render({
                 component: module.default,
@@ -382,7 +418,7 @@ export class Router {
                 route: match.route.template,
             });
             this.platform.settle(target, { restore, scroll });
-            if (payload.title !== undefined) this.platform.setTitle(payload.title);
+            this.shown = key;
             this.platform.pruneStyles(payload.css);
             return true;
         } catch {

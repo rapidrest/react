@@ -206,18 +206,38 @@ describe("ReactRoute Tests", () => {
         expect(result.body).toContain("db connection failed at /secret/internal/path");
     });
 
-    it("Redacts the error message on a 500 in production.", async () => {
-        const original = process.env.NODE_ENV;
-        try {
-            process.env.NODE_ENV = "production";
-            const result = await request(server.getApplication()).get("/throws-app/");
-            expect(result.status).toBe(500);
-            expect(result.body).toContain("Internal Server Error");
-            expect(result.body).not.toContain("db connection failed");
-            expect(result.body).not.toContain("/secret/internal/path");
-        } finally {
-            process.env.NODE_ENV = original;
+    describe("the error message of a 500", () => {
+        /** The always-failing page's app, with dev mode (which shows the error) on or off. */
+        class ThrowsRoute extends TestableReactRoute {
+            protected readonly appDir = "test/app-throws";
+            constructor(private readonly dev: boolean) {
+                super();
+                (this as any).logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined };
+            }
+            protected isDevMode(): boolean {
+                return this.dev;
+            }
         }
+
+        const render = async (dev: boolean) => {
+            const { res, calls } = fakeResponse();
+            await new ThrowsRoute(dev).get(fakeRequest({ path: "/" }), res);
+            return calls;
+        };
+
+        it("is shown in dev mode.", async () => {
+            const calls = await render(true);
+            expect(calls.status).toBe(500);
+            expect(calls.body).toContain("db connection failed at /secret/internal/path");
+        });
+
+        it("is redacted anywhere else — not only when NODE_ENV is 'production', but for an unset or unusual one too.", async () => {
+            const calls = await render(false);
+            expect(calls.status).toBe(500);
+            expect(calls.body).toContain("Internal Server Error");
+            expect(calls.body).not.toContain("db connection failed");
+            expect(calls.body).not.toContain("/secret/internal/path");
+        });
     });
 
     it("Does not expose the dev-reload script or SSE endpoint when NODE_ENV is misconfigured.", async () => {
@@ -354,21 +374,6 @@ describe("ReactRoute.resolveAppFile Tests", () => {
         expect(result?.params).toEqual({ id: "../../src/ReactRoute" });
     });
 
-    it("Bounds the production resolved-file cache instead of growing with every distinct URL.", async () => {
-        const original = process.env.NODE_ENV;
-        const cachingRoute = new TestableReactRoute();
-        try {
-            process.env.NODE_ENV = "production";
-            for (let i = 0; i < 10005; i++) {
-                await cachingRoute.callResolveAppFile("test/app", `/%E0%A4%A/${i}`);
-            }
-            expect((cachingRoute as any).resolvedFileCache.size).toBeLessThanOrEqual(10000);
-            expect((cachingRoute as any).resolvedFileCache.size).toBeGreaterThan(0);
-        } finally {
-            process.env.NODE_ENV = original;
-        }
-    });
-
     it("Resolves a single dynamic segment leaf file, capturing its value into params.", async () => {
         const result = await route.callResolveAppFile("test/app", "/pets/123");
         expect(result).not.toBeNull();
@@ -436,6 +441,20 @@ describe("ReactRoute.resolveClientUrls Tests", () => {
             process.env.NODE_ENV = original;
         }
     }
+
+    it("Works out a page's assets once in production, where the manifest can't change.", () => {
+        const route = new TestableReactRoute();
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        const manifest = { [entryKey]: { file: "assets/index-abc123.js" } };
+        const find = vi.spyOn(route as any, "findPageEntry");
+
+        withProductionManifest(route, manifest, () => {
+            const first = route.callResolveClientUrls(pagePath);
+            expect(route.callResolveClientUrls(pagePath)).toBe(first);
+        });
+        expect(find).toHaveBeenCalledTimes(1);
+    });
 
     it("Resolves an entry via a direct top-level key match.", () => {
         const route = new TestableReactRoute();
@@ -649,6 +668,8 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         fs.mkdirSync(path.join(outDir, ".well-known"), { recursive: true });
         fs.writeFileSync(path.join(outDir, ".well-known", "assetlinks.json"), "[\"Contact\"]");
         fs.writeFileSync(path.join(outDir, "assets", ".hidden.js"), "secret");
+        fs.writeFileSync(path.join(outDir, "assets", "index-BvT3x9_a.js"), "console.log('hashed');");
+        fs.mkdirSync(path.join(outDir, "folder.js"));
     });
 
     afterAll(() => {
@@ -690,6 +711,82 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         }
     });
 
+    it("Judges a file by where it really is: a spelling of a dot folder the filesystem also answers to is still one.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        // As if `.vite` were also reachable as `VITE~1` (8.3 short names): the real path is what's judged.
+        fs.mkdirSync(path.join(outDir, "alias"), { recursive: true });
+        fs.writeFileSync(path.join(outDir, "alias", "manifest.json"), "{}");
+        const realpath = vi.spyOn(fs.promises, "realpath").mockImplementation(async (p: any) =>
+            String(p).endsWith(path.join("alias", "manifest.json")) ? path.join(outDir, ".vite", "manifest.json") : p,
+        );
+        try {
+            const { res } = fakeResponse();
+            expect(await route.callTryServeAsset("/alias/manifest.json", res)).toBe(false);
+        } finally {
+            realpath.mockRestore();
+        }
+    });
+
+    it("Doesn't serve a file whose real location is outside the output directory (a symlink out of it).", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const realpath = vi.spyOn(fs.promises, "realpath").mockImplementation(async (p: any) =>
+            String(p).endsWith("bundle-abc123.js") ? path.join(os.tmpdir(), "elsewhere", "bundle-abc123.js") : p,
+        );
+        try {
+            const { res } = fakeResponse();
+            expect(await route.callTryServeAsset("/assets/bundle-abc123.js", res)).toBe(false);
+        } finally {
+            realpath.mockRestore();
+        }
+    });
+
+    it("Doesn't serve what it can't resolve to a real path.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const realpath = vi.spyOn(fs.promises, "realpath").mockRejectedValue(new Error("EACCES"));
+        try {
+            const { res } = fakeResponse();
+            expect(await route.callTryServeAsset("/assets/bundle-abc123.js", res)).toBe(false);
+        } finally {
+            realpath.mockRestore();
+        }
+    });
+
+    it("Lets browsers keep a file named for its content for good, and no other.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const hashed = fakeResponse();
+        expect(await route.callTryServeAsset("/assets/index-BvT3x9_a.js", hashed.res)).toBe(true);
+        expect(hashed.calls.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+
+        const plain = fakeResponse();
+        expect(await route.callTryServeAsset("/assets/bundle-abc123.js", plain.res)).toBe(true);
+        expect(plain.calls.headers["cache-control"]).toBeUndefined();
+    });
+
+    it("Doesn't touch the filesystem for a path that has no extension we serve (a page's URL).", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const stat = vi.spyOn(fs.promises, "stat");
+        try {
+            const { res } = fakeResponse();
+            expect(await route.callTryServeAsset("/pets/7", res)).toBe(false);
+            expect(await route.callTryServeAsset("/notes.exe", res)).toBe(false);
+            expect(stat).not.toHaveBeenCalled();
+        } finally {
+            stat.mockRestore();
+        }
+    });
+
+    it("Doesn't serve a directory, whatever it's called.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res } = fakeResponse();
+        expect(await route.callTryServeAsset("/folder.js", res)).toBe(false);
+    });
+
     it("Still serves from .well-known.", async () => {
         const route = new TestableReactRoute();
         route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
@@ -724,6 +821,9 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
         const { res } = fakeResponse();
         expect(await route.callTryServeAsset("/../../../../../../etc/passwd", res)).toBe(false);
+        // ...and one with an extension we'd serve, which is what gets as far as the containment check.
+        expect(await route.callTryServeAsset("/../../../../../../etc/passwd.json", res)).toBe(false);
+        expect(await route.callTryServeAsset("/assets/../../outside.js", res)).toBe(false);
     });
 
     it("get() short-circuits to the asset response, bypassing page resolution entirely.", async () => {

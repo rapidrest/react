@@ -53,7 +53,9 @@ For complete documentation please visit [RapidREST.dev](https://rapidrest.dev).
 - `createViteConfig()` auto-discovers page entry points from your `app/` directory and generates
   virtual hydration modules for each — no hand-written entry files
 - Built JS/CSS bundles are resolved from Vite's manifest and injected automatically, and served
-  directly by the route at request time
+  directly by the route at request time. Stylesheets are imported for their effect
+  (`import "./app.css"`); CSS Modules (`styles.card`) and imported images or fonts aren't supported in
+  a server-rendered page, since the class names and URLs are the client build's to decide
 - Serialized props are embedded in the page (XSS-safely escaped) and read back on the client via
   `hydrateRoute()` / `getHydrationProps()`
 
@@ -201,6 +203,11 @@ export default class PetService {
     }
 }
 ```
+
+A service belongs to the page whose route its path names — `/pets/:id` is `app/pets/[id].tsx` (the
+token's name needn't match the bracket's) — not to whatever URL happens to match it, so a literal
+`app/pets/featured.tsx` beside it has its own service or none. A service's path is the page's public
+URL, mount prefix included: a route mounted at `/admin` serves the services under `/admin`.
 
 A few rules keep this predictable:
 

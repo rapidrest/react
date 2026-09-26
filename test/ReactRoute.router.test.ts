@@ -222,6 +222,18 @@ describe("ReactRoute router mode", () => {
             expect(res.setHeader).toHaveBeenCalledWith("Vary", NAVIGATION_HEADER);
         });
 
+        it("adds to a Vary an earlier middleware set (CORS's Origin) rather than replacing it, and doesn't repeat itself", async () => {
+            const res = fakeResponse();
+            res.getHeader.mockReturnValue("Origin");
+            await route().get(fakeRequest({ path: "/pets" }), res);
+            expect(res.setHeader).toHaveBeenCalledWith("Vary", `Origin, ${NAVIGATION_HEADER}`);
+
+            const again = fakeResponse();
+            again.getHeader.mockReturnValue(`origin, ${NAVIGATION_HEADER.toLowerCase()}`);
+            await route().get(fakeRequest({ path: "/pets" }), again);
+            expect(again.setHeader).not.toHaveBeenCalledWith("Vary", expect.anything());
+        });
+
         it("falls back to the server's error page when the router's assets can't be found", async () => {
             const r = route();
             r.setManifestPath(path.join(dir, "no-such-manifest.json"));
@@ -407,6 +419,23 @@ describe("ReactRoute router mode", () => {
             const key = client.load.mock.calls[0][0];
             expect(key.endsWith(".navigation")).toBe(true);
             expect(client.save).toHaveBeenCalledWith(key, { json: expect.stringContaining('"route":"/pets"') }, 60);
+        });
+
+        it("works a page out once when many browsers ask for it at once, and caches it once", async () => {
+            const { r, client } = cached();
+            client.load.mockResolvedValue(undefined);
+            const compute = vi.spyOn(r as any, "renderNavigation");
+            const responses = [fakeResponse(), fakeResponse(), fakeResponse()];
+
+            await Promise.all(responses.map((res) => r.get(navigation({ path: "/pets", url: "/pets" }), res)));
+
+            expect(compute).toHaveBeenCalledTimes(1);
+            expect(client.save).toHaveBeenCalledTimes(1);
+            const bodies = responses.map((res) => res.send.mock.calls[0][0]);
+            expect(new Set(bodies).size).toBe(1);
+            expect(JSON.parse(bodies[0]).route).toBe("/pets");
+            // Done, so the next one works it out afresh (it isn't held on to).
+            expect((r as any).pendingNavigations.size).toBe(0);
         });
 
         it("serves a cached page without computing anything", async () => {

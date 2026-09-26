@@ -12,8 +12,9 @@ import {
     type PropsWithChildren,
     type ReactElement,
     useContext,
+    useMemo,
 } from "react";
-import { isInterceptableClick, type NavigateOptions } from "./routerCore.js";
+import { isHttpUrl, isInterceptableClick, type NavigateOptions } from "./routerCore.js";
 
 /*
  * The React side of the router: what a page can ask it (where am I, take me there) and the `<Link>` component. Used on
@@ -66,7 +67,7 @@ const NO_LOCATION: RouterLocation = { pathname: "", search: "", params: {}, rout
 /** ...and what it can do there: nothing but leave the page the ordinary way. */
 const NO_ROUTER: RouterApi = {
     navigate: async (to) => {
-        if (typeof window !== "undefined") window.location.assign(to);
+        if (typeof window !== "undefined" && isHttpUrl(to, window.location.href)) window.location.assign(to);
         return false;
     },
     prefetch: () => undefined,
@@ -87,7 +88,19 @@ export function RouterProvider({ location, api = null, children }: PropsWithChil
 /** Where the page is, and the ways to go somewhere else. Outside a `RouterProvider`, "nowhere", and a full page load. */
 export function useRouter(): RouterLocation & RouterApi {
     const context = useContext(RouterContext);
-    return { ...(context?.location ?? NO_LOCATION), ...(context?.api ?? NO_ROUTER) };
+    const location = context?.location ?? NO_LOCATION;
+    const api = context?.api ?? NO_ROUTER;
+    // The router's methods are called through `api` rather than copied off it: they live on its prototype, which
+    // spreading an instance (`{ ...api }`) silently leaves behind.
+    return useMemo(
+        () => ({
+            ...location,
+            navigate: (to: string, options?: NavigateOptions) => api.navigate(to, options),
+            prefetch: (href: string) => api.prefetch(href),
+            canHandle: (href: string) => api.canHandle(href),
+        }),
+        [location, api],
+    );
 }
 
 /** The URL's path, including any mount prefix. */

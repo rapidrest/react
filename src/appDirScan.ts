@@ -47,10 +47,11 @@ export function scanAppDirPages(appDir: string): string[] {
  * Converts an appDir-relative page file path (as returned by `scanAppDirPages()`) to the
  * `:name`-templated route path it serves, matching `ReactRoute.resolveAppFile()`'s convention:
  * `index.tsx` -> `/`, `pets.tsx` -> `/pets`, `auth/login/index.tsx` -> `/auth/login`,
- * `pets/[id].tsx` -> `/pets/:id`, `pets/[id]/index.tsx` -> `/pets/:id`.
+ * `pets/[id].tsx` -> `/pets/:id`, `pets/[id]/index.tsx` -> `/pets/:id`. A compiled `.js`/`.jsx` file maps the
+ * same way as its `.tsx` source.
  */
 export function fileToRouteTemplate(relPath: string): string {
-    const noExt = relPath.replace(/\.tsx$/, "");
+    const noExt = relPath.replace(/\.(tsx|jsx|js)$/, "");
     const deIndexed = noExt.replace(/(^|\/)index$/, "");
     const segments = deIndexed
         .split("/")

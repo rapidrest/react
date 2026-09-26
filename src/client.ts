@@ -11,7 +11,8 @@ import { hydrateRoot } from "react-dom/client";
  */
 export function getHydrationProps(propsId = "react-props"): any {
     if (typeof document === "undefined") return undefined;
-    const el = document.getElementById(propsId);
+    // Among the JSON scripts, not by `getElementById` (see `readJsonScript()`).
+    const el = Array.from(document.querySelectorAll('script[type="application/json"]')).find((script) => script.id === propsId);
     if (!el) return undefined;
     try {
         return JSON.parse(el.textContent);

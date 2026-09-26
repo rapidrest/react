@@ -3,7 +3,7 @@
 // Copyright (C) 2026 Jean-Philippe Steinmetz
 // SPDX-License-Identifier: MPL-2.0
 ///////////////////////////////////////////////////////////////////////////////
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +19,36 @@ export function isAvailable(name: string): boolean {
     return fs.existsSync(path.join(process.cwd(), "node_modules", ".bin", name));
 }
 
+/** Every process `spawnProcess()` started that hasn't exited, so a failure to start one can stop the rest. */
+const running = new Set<ChildProcess>();
+
+/**
+ * Stops `child` and whatever it started. On Windows a command is run through a `cmd.exe` wrapper (`node_modules/.bin`
+ * has `.cmd` shims), and killing that alone leaves the server it launched running, holding its port — so the whole
+ * tree is killed there.
+ */
+export function killProcess(child: ChildProcess): void {
+    if (process.platform === "win32" && child.pid) {
+        try {
+            execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+            return;
+        } catch {
+            // Already gone, or taskkill isn't there: fall back to the plain kill.
+        }
+    }
+    child.kill();
+}
+
 export function spawnProcess(cmd: string, cmdArgs: string[], env?: Record<string, string>): ChildProcess {
     const proc = spawn(cmd, cmdArgs, { stdio: "inherit", ...(env ? { env: { ...process.env, ...env } } : {}) });
+    running.add(proc);
+    proc.on("exit", () => running.delete(proc));
     proc.on("error", (err) => {
         console.error(`[rapidreact] Failed to start "${cmd}": ${err.message}`);
+        // Exiting alone would leave the ones already started (a dev server, holding its port) running with nobody to stop them.
+        for (const other of running) {
+            if (other !== proc) killProcess(other);
+        }
         process.exit(1);
     });
     return proc;
@@ -33,7 +59,7 @@ export function runParallel(procs: Array<[string, string[]]>): void {
 
     const shutdown = () => {
         for (const child of children) {
-            if (!child.killed) child.kill();
+            if (!child.killed) killProcess(child);
         }
     };
 

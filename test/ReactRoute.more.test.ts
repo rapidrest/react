@@ -103,9 +103,10 @@ class TestableReactRoute extends ReactRoute {
 
     public callResolveAppFile(
         appDir: string,
-        segment: string
-    ): Promise<{ file: string; params: Record<string, string> } | null> {
-        return (this as any).resolveAppFile(appDir, segment);
+        segment: string,
+        internal?: boolean
+    ): Promise<{ file: string; params: Record<string, string>; template: string } | null> {
+        return (this as any).resolveAppFile(appDir, segment, internal);
     }
 
     public getServiceFor(pageSegment: string): any {
@@ -116,8 +117,12 @@ class TestableReactRoute extends ReactRoute {
         return (this as any).resolveService(pageSegment);
     }
 
+    /** Registers services the way init() does: by their path's template, `:name` tokens by position. */
     public setDynamicServices(services: { template: string; instance: any }[]): void {
-        (this as any).dynamicServices = services;
+        for (const { template, instance } of services) {
+            const key = "/" + template.split("/").filter(Boolean).map((part) => (part.startsWith(":") ? ":" : part)).join("/");
+            (this as any).services.set(key, instance);
+        }
     }
 
     public callHandleStaticPaths(res: HttpResponse): Promise<void> {
@@ -379,11 +384,35 @@ describe("ReactRoute.init Tests", () => {
             vi.useFakeTimers();
 
             watchers[0].emit("error", new Error("EPERM"));
-            vi.advanceTimersByTime(200 * 100);
+            vi.advanceTimersByTime(200 * 300);
 
-            // The original watch, plus 25 attempts to find the replacement, and no more.
-            expect(watchSpy).toHaveBeenCalledTimes(26);
+            // The original watch, plus 150 attempts (thirty seconds) to find the replacement, and no more.
+            expect(watchSpy).toHaveBeenCalledTimes(151);
             expect(reloads()).toBe(0);
+        });
+
+        it("keeps looking at startup for a manifest the first build hasn't written yet, and reloads once it's there", async () => {
+            vi.useFakeTimers();
+            let calls = 0;
+            const { watchSpy, reloads } = await startWatching(() => {
+                calls++;
+                // The server starts alongside the build: the manifest isn't there for the first 3 tries.
+                if (calls <= 3) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+                return fakeWatcher();
+            });
+
+            // The try at startup, and the one straight after it that starts the looking.
+            expect(watchSpy).toHaveBeenCalledTimes(2);
+            vi.advanceTimersByTime(200);
+            expect(watchSpy).toHaveBeenCalledTimes(3);
+            expect(reloads()).toBe(0);
+            vi.advanceTimersByTime(200);
+            expect(watchSpy).toHaveBeenCalledTimes(4);
+            vi.advanceTimersByTime(150);
+            expect(reloads()).toBe(1);
+            // Found it, so it stops looking.
+            vi.advanceTimersByTime(200 * 5);
+            expect(watchSpy).toHaveBeenCalledTimes(4);
         });
     });
 
@@ -419,32 +448,37 @@ describe("ReactRoute.init Tests", () => {
         expect(route.getServiceFor("/app/svc")).toBeUndefined();
     });
 
-    it("Finds a react service however its page's path is written: trailing or doubled slashes, percent-encoding.", async () => {
+    it("Finds a page's react service by the page's route template, however the paths are written.", async () => {
         @ReactService("/svc/page")
         class PageService {}
         @ReactService("/svc/trailing/")
         class TrailingService {}
+        @ReactService("/svc/things/:thingId")
+        class ThingService {}
         const pageInstance = new PageService();
         const trailingInstance = new TrailingService();
-        const newInstance = vi.fn(async (clazz: any) => (clazz === PageService ? pageInstance : trailingInstance));
+        const thingInstance = new ThingService();
+        const instances = new Map<any, any>([[PageService, pageInstance], [TrailingService, trailingInstance], [ThingService, thingInstance]]);
+        const newInstance = vi.fn(async (clazz: any) => instances.get(clazz));
         const route = new TestableReactRoute();
         route.setLogger(noopLogger);
         route.setObjectFactory({
-            classes: new Map<string, any>([["PageService", PageService], ["TrailingService", TrailingService]]),
+            classes: new Map<string, any>([["PageService", PageService], ["TrailingService", TrailingService], ["ThingService", ThingService]]),
             newInstance,
         } as any);
         await route.callInit();
-        const find = (segment: string) => (route as any).resolveService(segment);
+        const find = (template: string) => (route as any).resolveService(template);
 
-        for (const segment of ["/svc/page", "/svc/page/", "//svc//page", "/svc/%70age"]) {
-            expect(find(segment), segment).toBe(pageInstance);
-        }
+        expect(find("/svc/page")).toBe(pageInstance);
+        expect(find("/svc/page/")).toBe(pageInstance);
         expect(find("/svc/trailing")).toBe(trailingInstance);
-        expect(find("/svc/trailing/")).toBe(trailingInstance);
-        // A malformed escape is kept as it is, and simply matches nothing.
-        expect(find("/svc/pag%E0%A4%A")).toBeUndefined();
+        // A `:name` is by position: the page's bracket may be called something else.
+        expect(find("/svc/things/:id")).toBe(thingInstance);
+        expect(find("/svc/things/:thingId")).toBe(thingInstance);
         expect(find("/svc")).toBeUndefined();
-        expect(find("/")).toBeUndefined();
+        expect(find("/svc/things/7")).toBeUndefined();
+        // No page, no service: the template of a request that matched none is empty, and isn't the root's.
+        expect(find("")).toBeUndefined();
     });
 
     it("Waits for react services to be instantiated before init() resolves.", async () => {
@@ -506,8 +540,7 @@ describe("ReactRoute.init Tests", () => {
         await vi.waitFor(() => expect(route.getServiceFor("/")).toBe(instance));
     });
 
-    it("Registers a react service whose path contains a ':name' token as a dynamic template, " +
-        "not an exact-match entry, and resolves it via resolveService() for a matching segment.", async () => {
+    it("Registers a react service whose path contains a ':name' token under its template, for the page with that route.", async () => {
         @ReactService("/app/pets/:id")
         class DynamicService {
             async fetchProps() {
@@ -525,32 +558,22 @@ describe("ReactRoute.init Tests", () => {
         route.setLogger(noopLogger);
         route.setObjectFactory(fakeObjectFactory as any);
         await route.callInit();
-        await vi.waitFor(() => expect(route.callResolveService("/pets/99")).toBe(instance));
-        // Never registered as an exact-match entry.
-        expect(route.getServiceFor("/pets/:id")).toBeUndefined();
-        expect(route.getServiceFor("/pets/99")).toBeUndefined();
-        // A segment that doesn't match the template at all resolves to nothing.
+        expect(route.getServiceFor("/pets/:")).toBe(instance);
+        expect(route.callResolveService("/pets/:id")).toBe(instance);
+        expect(route.callResolveService("/pets/:petId")).toBe(instance);
+        // Not found by what a URL captured: a value that matches the template is not its page.
+        expect(route.callResolveService("/pets/99")).toBeUndefined();
         expect(route.callResolveService("/other")).toBeUndefined();
     });
 
-    it("Prefers an exact literal match over a dynamic template for the same segment.", async () => {
+    it("Keeps a literal page's service and its dynamic sibling's apart.", async () => {
         @ReactService("/app/pets/:id")
-        class DynamicService {
-            async fetchProps() {
-                return { fromService: "dynamic" };
-            }
-        }
+        class DynamicService {}
         @ReactService("/app/pets/featured")
-        class ExactService {
-            async fetchProps() {
-                return { fromService: "exact" };
-            }
-        }
+        class ExactService {}
         const dynamicInstance = new DynamicService();
         const exactInstance = new ExactService();
-        const newInstance = vi.fn()
-            .mockResolvedValueOnce(dynamicInstance)
-            .mockResolvedValueOnce(exactInstance);
+        const newInstance = vi.fn(async (clazz: any) => (clazz === DynamicService ? dynamicInstance : exactInstance));
         const fakeObjectFactory = {
             classes: new Map<string, any>([
                 ["DynamicService", DynamicService],
@@ -566,28 +589,70 @@ describe("ReactRoute.init Tests", () => {
         route.setLogger(noopLogger);
         route.setObjectFactory(fakeObjectFactory as any);
         await route.callInit();
-        await vi.waitFor(() => expect(route.callResolveService("/pets/featured")).toBe(exactInstance));
-        expect(route.callResolveService("/pets/99")).toBe(dynamicInstance);
+        expect(route.callResolveService("/pets/featured")).toBe(exactInstance);
+        expect(route.callResolveService("/pets/:id")).toBe(dynamicInstance);
+    });
+
+    it("Registers services in the order the classes were listed, not the order they finished instantiating in.", async () => {
+        @ReactService("/app/dup")
+        class First {}
+        @ReactService("/app/dup")
+        class Second {}
+        const firstInstance = new First();
+        const secondInstance = new Second();
+        // The first class is the slow one to instantiate.
+        const newInstance = vi.fn((clazz: any) =>
+            clazz === First
+                ? new Promise((resolve) => setTimeout(() => resolve(firstInstance), 30))
+                : Promise.resolve(secondInstance),
+        );
+
+        @Route("/app/*")
+        class PrefixedRoute extends TestableReactRoute {}
+
+        const route = new PrefixedRoute();
+        route.setLogger(noopLogger);
+        route.setObjectFactory({ classes: new Map<string, any>([["First", First], ["Second", Second]]), newInstance } as any);
+        await route.callInit();
+        // Both claim the page; the one listed last wins, as it always did — whichever finished first.
+        expect(route.getServiceFor("/dup")).toBe(secondInstance);
     });
 });
 
-describe("ReactRoute.hashRequest cache eviction", () => {
-    it("Clears the shared hash cache once it grows past 10000 entries and keeps working.", () => {
+describe("ReactRoute.hashRequest", () => {
+    it("Is stable for the same request, and a 32-character MD5 digest.", () => {
         const route = new TestableReactRoute();
-        for (let i = 0; i < 10005; i++) {
-            (route as any).hashRequest(fakeRequest({ path: `/evict-${i}` }));
-        }
-        const a = (route as any).hashRequest(fakeRequest({ path: "/after-evict" }));
-        const b = (route as any).hashRequest(fakeRequest({ path: "/after-evict" }));
+        const a = (route as any).hashRequest(fakeRequest({ path: "/x" }));
+        const b = (route as any).hashRequest(fakeRequest({ path: "/x" }));
         expect(a).toBe(b);
         expect(a).toMatch(/^[0-9a-f]{32}$/);
     });
-});
 
-describe("ReactRoute.fetchProps default", () => {
-    it("Returns an empty object when not overridden by a subclass.", async () => {
-        const route = new TestableReactRoute();
-        await expect(route.callFetchProps(fakeRequest({}))).resolves.toEqual({});
+    it("Tells apart the same request to different apps, so two apps sharing one cache can't answer for each other.", () => {
+        class Other extends TestableReactRoute {
+            protected readonly appDir = "test/another-app";
+        }
+        const req = fakeRequest({ path: "/x" });
+        expect((new TestableReactRoute() as any).hashRequest(req)).not.toBe((new Other() as any).hashRequest(req));
+
+        @Route("/mount/*")
+        class Mounted extends TestableReactRoute {}
+        const mounted = new Mounted();
+        (mounted as any).routePrefix = "/mount";
+        expect((mounted as any).hashRequest(req)).not.toBe((new TestableReactRoute() as any).hashRequest(req));
+    });
+
+    it("Under the router, also tells apart the query as written, since the page renders the location it was asked for.", () => {
+        class RoutedRoute extends TestableReactRoute {
+            protected readonly router = true;
+        }
+        const routed: any = new RoutedRoute();
+        const plain: any = new TestableReactRoute();
+        const a = fakeRequest({ path: "/x", url: "/x?a=1&b=2", query: { a: "1", b: "2" } });
+        const b = fakeRequest({ path: "/x", url: "/x?b=2&a=1", query: { b: "2", a: "1" } });
+        expect(routed.hashRequest(a)).not.toBe(routed.hashRequest(b));
+        // ...where nothing renders it, the order needn't matter.
+        expect(plain.hashRequest(a)).toBe(plain.hashRequest(b));
     });
 });
 
@@ -606,22 +671,116 @@ describe("ReactRoute.resolveAppFile edge cases", () => {
         }
     });
 
-    it("Caches a resolved path in production so a later on-disk change doesn't affect the cached lookup.", async () => {
+    it("Remembers the framework's own _layout/_404/_500 lookups in production, and nothing a URL asked for.", async () => {
         const original = process.env.NODE_ENV;
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-resolve-cache-"));
-        const filePath = path.join(dir, "page.tsx");
-        fs.writeFileSync(filePath, "export default function Page() { return null; }");
+        fs.writeFileSync(path.join(dir, "_404.tsx"), "export default function Page() { return null; }");
+        fs.writeFileSync(path.join(dir, "page.tsx"), "export default function Page() { return null; }");
         try {
             process.env.NODE_ENV = "production";
             const route = new TestableReactRoute();
-            const first = await route.callResolveAppFile(dir, "/page");
-            expect(first?.file).toMatch(/page\.tsx$/);
+            const first = await route.callResolveAppFile(dir, "_404", true);
+            expect(first?.file).toMatch(/_404\.tsx$/);
+            const page = await route.callResolveAppFile(dir, "/page");
+            expect(page?.file).toMatch(/page\.tsx$/);
+            expect((route as any).resolvedFileCache.size).toBe(1);
 
-            fs.rmSync(filePath);
-            const second = await route.callResolveAppFile(dir, "/page");
-            expect(second).toBe(first);
+            fs.rmSync(path.join(dir, "_404.tsx"));
+            fs.rmSync(path.join(dir, "page.tsx"));
+            expect(await route.callResolveAppFile(dir, "_404", true)).toBe(first);
+            // The page is looked up again, and it's gone.
+            expect(await route.callResolveAppFile(dir, "/page")).toBeNull();
         } finally {
             process.env.NODE_ENV = original;
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Lists each directory once in production, however many URLs are asked for — and every time in development.", async () => {
+        const original = process.env.NODE_ENV;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-listing-cache-"));
+        fs.writeFileSync(path.join(dir, "page.tsx"), "export default function Page() { return null; }");
+        fs.writeFileSync(path.join(dir, "[id].tsx"), "export default function Page() { return null; }");
+        const readdir = vi.spyOn(fs.promises, "readdir");
+        try {
+            process.env.NODE_ENV = "production";
+            const route = new TestableReactRoute();
+            for (let i = 0; i < 20; i++) await route.callResolveAppFile(dir, `/made-up-${i}`);
+            await route.callResolveAppFile(dir, "/page");
+            expect(readdir.mock.calls.filter(([d]) => d === dir)).toHaveLength(1);
+            expect((route as any).dirListings.size).toBe(1);
+
+            readdir.mockClear();
+            process.env.NODE_ENV = "development";
+            const dev = new TestableReactRoute();
+            await dev.callResolveAppFile(dir, "/page");
+            await dev.callResolveAppFile(dir, "/page");
+            expect(readdir.mock.calls.filter(([d]) => d === dir)).toHaveLength(2);
+            expect((dev as any).dirListings.size).toBe(0);
+        } finally {
+            readdir.mockRestore();
+            process.env.NODE_ENV = original;
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Matches a URL's segments against the names a directory really has, whatever the filesystem would answer for.", async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-exact-case-"));
+        fs.mkdirSync(path.join(dir, "Sub"));
+        fs.writeFileSync(path.join(dir, "Pets.tsx"), "export default function Page() { return null; }");
+        fs.writeFileSync(path.join(dir, "Sub", "index.tsx"), "export default function Page() { return null; }");
+        try {
+            const route = new TestableReactRoute();
+            expect((await route.callResolveAppFile(dir, "/Pets"))?.template).toBe("/Pets");
+            expect((await route.callResolveAppFile(dir, "/Sub"))?.template).toBe("/Sub");
+            // A case-insensitive filesystem would find these too: they're a different page, not this one.
+            expect(await route.callResolveAppFile(dir, "/pets")).toBeNull();
+            expect(await route.callResolveAppFile(dir, "/PETS")).toBeNull();
+            expect(await route.callResolveAppFile(dir, "/sub")).toBeNull();
+            expect(await route.callResolveAppFile(dir, "/sub/index")).toBeNull();
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Copes with a directory its remembered listing still names having gone since (production).", async () => {
+        const original = process.env.NODE_ENV;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-vanished-"));
+        fs.mkdirSync(path.join(dir, "sub"));
+        fs.writeFileSync(path.join(dir, "sub", "x.tsx"), "export default function Page() { return null; }");
+        try {
+            process.env.NODE_ENV = "production";
+            const route = new TestableReactRoute();
+            expect((await route.callResolveAppFile(dir, "/sub/x"))?.template).toBe("/sub/x");
+            fs.rmSync(path.join(dir, "sub"), { recursive: true });
+            expect(await route.callResolveAppFile(dir, "/sub/x")).toBeNull();
+        } finally {
+            process.env.NODE_ENV = original;
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Doesn't resolve a URL to a directory that has no index of its own.", async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-no-index-"));
+        fs.mkdirSync(path.join(dir, "empty"));
+        try {
+            expect(await new TestableReactRoute().callResolveAppFile(dir, "/empty")).toBeNull();
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Gives the template of the file, not of how the URL spelled it: /index and /pets/index are / and /pets.", async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-template-"));
+        fs.mkdirSync(path.join(dir, "pets"));
+        fs.writeFileSync(path.join(dir, "index.tsx"), "export default function Page() { return null; }");
+        fs.writeFileSync(path.join(dir, "pets", "index.tsx"), "export default function Page() { return null; }");
+        try {
+            const route = new TestableReactRoute();
+            expect((await route.callResolveAppFile(dir, "/index"))?.template).toBe("/");
+            expect((await route.callResolveAppFile(dir, "/pets"))?.template).toBe("/pets");
+            expect((await route.callResolveAppFile(dir, "/pets/index"))?.template).toBe("/pets");
+        } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }
     });

@@ -9,7 +9,9 @@ import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { vi } from "vitest";
 import spawn from "cross-spawn";
+import { execFileSync } from "node:child_process";
 import {
+    killProcess,
     findExportEntry,
     findServerEntry,
     isAvailable,
@@ -21,6 +23,10 @@ import {
 } from "../src/cli.js";
 
 vi.mock("cross-spawn", () => ({ default: vi.fn() }));
+vi.mock("node:child_process", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("node:child_process")>()),
+    execFileSync: vi.fn(),
+}));
 
 // Symlink creation needs elevated privileges on Windows outside of Developer Mode; probe once so
 // the symlink-specific regression test below can skip itself there instead of failing on an
@@ -46,6 +52,7 @@ class ProcessExitSignal extends Error {
 
 class FakeChildProcess extends EventEmitter {
     public killed = false;
+    public pid?: number;
     public kill = vi.fn(() => {
         this.killed = true;
     });
@@ -153,12 +160,74 @@ describe("cli", () => {
         });
     });
 
+    describe("killProcess", () => {
+        const setPlatform = (value: string) => Object.defineProperty(process, "platform", { value, configurable: true });
+        const realPlatform = process.platform;
+        afterEach(() => {
+            setPlatform(realPlatform);
+            vi.mocked(execFileSync).mockReset();
+        });
+
+        it("kills the process itself, where there's no wrapper around what it started.", () => {
+            setPlatform("linux");
+            const child = new FakeChildProcess();
+            child.pid = 123;
+            killProcess(child as any);
+            expect(child.kill).toHaveBeenCalled();
+            expect(execFileSync).not.toHaveBeenCalled();
+        });
+
+        it("kills the whole tree on Windows, where a cmd.exe wrapper stands between it and the server it started.", () => {
+            setPlatform("win32");
+            const child = new FakeChildProcess();
+            child.pid = 123;
+            killProcess(child as any);
+            expect(execFileSync).toHaveBeenCalledWith("taskkill", ["/pid", "123", "/T", "/F"], { stdio: "ignore" });
+            expect(child.kill).not.toHaveBeenCalled();
+        });
+
+        it("falls back to killing the process when taskkill can't, or there's no pid to give it", () => {
+            setPlatform("win32");
+            vi.mocked(execFileSync).mockImplementation(() => {
+                throw new Error("not found");
+            });
+            const child = new FakeChildProcess();
+            child.pid = 123;
+            killProcess(child as any);
+            expect(child.kill).toHaveBeenCalled();
+
+            const noPid = new FakeChildProcess();
+            killProcess(noPid as any);
+            expect(noPid.kill).toHaveBeenCalled();
+        });
+    });
+
     describe("spawnProcess", () => {
         it("Logs and exits when the underlying process fails to start.", () => {
             const proc = spawnProcess("some-cmd", ["--flag"]);
             expect(() => proc.emit("error", new Error("boom"))).toThrow(ProcessExitSignal);
             expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to start "some-cmd": boom'));
             expect(exitSpy).toHaveBeenCalledWith(1);
+        });
+
+        it("Stops the processes it already started when one fails to start, rather than leave them running.", () => {
+            const first = spawnProcess("a", []) as unknown as FakeChildProcess;
+            const second = spawnProcess("b", []) as unknown as FakeChildProcess;
+
+            expect(() => second.emit("error", new Error("ENOENT"))).toThrow(ProcessExitSignal);
+
+            expect(first.kill).toHaveBeenCalled();
+            expect(second.kill).not.toHaveBeenCalled();
+        });
+
+        it("Leaves alone a process that has already exited when another fails to start.", () => {
+            const first = spawnProcess("a", []) as unknown as FakeChildProcess;
+            const second = spawnProcess("b", []) as unknown as FakeChildProcess;
+            first.emit("exit", 0);
+
+            expect(() => second.emit("error", new Error("ENOENT"))).toThrow(ProcessExitSignal);
+
+            expect(first.kill).not.toHaveBeenCalled();
         });
 
         it("Spawns without a custom env by default.", () => {

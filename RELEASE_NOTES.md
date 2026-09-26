@@ -54,6 +54,62 @@
 * Client navigation: navigating to a page that is already loading no longer falls back to a full page load, and going
   back or forward no longer overwrites the scroll position about to be restored.
 * `runStaticExport()` no longer leaves the static-paths endpoint enabled when the server fails to start.
+* **`useRouter().navigate()` didn't work in the browser.** `useRouter()` copied the router's methods onto a new object
+  with an object spread, which copies own properties only — and `navigate`, `prefetch` and `canHandle` are methods of
+  the `Router` class, on its prototype — so they were `undefined` and calling one threw. `Link` and plain `<a>`
+  clicks, which don't go through the hook, were unaffected, which is why it went unnoticed. They are bound to the
+  router now.
+* **A page reached as `/index` or `/pets/index` never hydrated under the router.** The route template the client
+  router matches on was built from the URL's spelling; it's the file's now (`index.tsx` is `/`), which is also what
+  the client's route table is built from.
+* **Case-insensitive filesystems (Windows, macOS).** A URL's segment is matched against the names a directory
+  really has instead of asking the filesystem for the path. `/PeTs` used to resolve to `pets.tsx`, each casing a
+  different module to Node's import cache (a fresh copy of the page, top-level code and all, retained forever, per
+  casing), with a template that matched no page. It's a 404 now, as it is everywhere else. **Breaking** for a
+  deployment on such a filesystem that relied on a wrong-case URL working.
+* **Client navigation follows the whole page.** The layout's `<title>` is set before the page renders, so a title the
+  page sets for itself wins; going to a `#fragment` of the page showing, or back to one, only moves to it (it used to
+  fetch and remount the page, losing its state); the scroll position of the page a document loaded on is saved as it
+  is left and restored after a reload or back from a full page load; `Link` no longer warms a URL only a root-level
+  `[slug].tsx` matches (`/logout` is another route's on the server, and mustn't be GET on hover); prefetched pages
+  expire and are capped at 32; and `navigate()` and the fallback to a full page load never send the browser to a
+  URL that isn't `http(s)` (`javascript:`).
+* **A `@ReactService` belongs to a page, not to a URL that matches its path.** It is found by the route template the
+  page was resolved to (`/pets/:id` for `pets/[id].tsx`, tokens matched by position whatever they're called), so a
+  literal `pets/featured.tsx` beside the dynamic page no longer gets the dynamic page's service, `/admin%2fstats`
+  (one segment, captured by `[slug]`) can't reach `admin/stats`'s service, and a 404's render has none. Which of two
+  services claiming one page wins no longer depends on which instantiated first. **Breaking** for an app that relied
+  on a dynamic service also serving a literal page beside it; register the service for that page's own path.
+* **Error messages are redacted wherever dev mode is off.** A `500`'s error reached the `_500` page whole unless
+  `NODE_ENV` was exactly `production` — so under `staging`, or with it unset, file paths and messages went to the
+  browser while every other dev feature was (correctly) off. It follows `isDevMode()` now. **Breaking** for a
+  non-production `NODE_ENV` that expected to see them: override `isDevMode()`.
+* **The page cache key includes the app.** Two apps (or environments) sharing one Redis and asking the same path as
+  the same user no longer answer each other's; under the router the query string as written is part of it too, since
+  the page renders the location. A deploy starts with a cold cache.
+* **Static assets.** The client build's manifest and any dot folder can't be served by the Windows short name of
+  `.vite` (`/VITE~1/manifest.json`) or through a symlink out of the output directory; a file named for its content
+  is served with `Cache-Control: immutable`; and paths that aren't assets don't touch the filesystem.
+* **A static export is the site's pages, not the client build's manifest.** `.vite/manifest.json` (every source entry
+  of the app) and any dot folder or dotfile other than `.well-known` are no longer copied out of `assetsDir`; the
+  copy happens before the crawl, so a file in it can't overwrite a page; a redirect is an error, not the page it
+  leads to (a gated page that sends visitors to `/login` was exported as the login page, as if nothing were wrong);
+  and `exclude` patterns with the `g` or `y` flag no longer let every second route through.
+* **Startup and shutdown.** The dev live-reload watcher keeps looking for the first build's manifest (a minute) instead
+  of never starting when the server wins the race with the build, and after a rebuild for thirty seconds instead of
+  five; `rapidreact dev` stops what it started when another process fails to start, and kills the whole process tree
+  on Windows.
+* **Less repeated work in production.** A page's client assets are found in the manifest once; a client navigation is
+  computed once however many browsers ask at once; a directory is listed once. Nothing is remembered per URL: the
+  caches that were (the resolved-page cache and the request-hash memo) grew by a key per distinct URL any client
+  made up.
+* A `_layout.tsx` that fails to load gives the `_500` page, redacted, and is logged, instead of an error nothing
+  catches; the page's JSON config and props `<script>`s are found among the JSON scripts, not by `getElementById`,
+  so an element with a chosen `id` in page content can't stand in for them; and `Vary` is added to rather than
+  replaced.
+* CSS Modules (`styles.card`) and imported images and fonts are not supported in a server-rendered page — the class
+  names and URLs are the client build's to decide, so the server has none to render. Documented in the README, and the
+  SSR stub's comment, which claimed to handle more, now says what it does.
 * **`GET /.vite/manifest.json` was served to anyone.** The built-in asset handler served any file with a known
   extension from the client build's output directory, including Vite's manifest, which lists every source entry of the
   app. It no longer serves anything from a dot folder or a dotfile (`.well-known/` excepted).

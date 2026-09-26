@@ -47,7 +47,14 @@ function makeDocument(elements: Record<string, any> = {}) {
         head: { appendChild: vi.fn((node: any) => links.push(node)) },
         createElement: vi.fn(() => ({})),
         getElementById: vi.fn((id: string) => elements[id] ?? null),
-        querySelectorAll: vi.fn(() => links.filter((l) => l.rel === "stylesheet")),
+        // The JSON scripts are the elements that have text content, by their id; anything else asked for is a stylesheet.
+        querySelectorAll: vi.fn((selector: string) =>
+            selector.startsWith("script")
+                ? Object.entries(elements)
+                      .filter(([, element]) => element && "textContent" in element)
+                      .map(([id, element]) => ({ ...element, id }))
+                : links.filter((l) => l.rel === "stylesheet"),
+        ),
         title: "before",
         addEventListener: vi.fn((type: string, handler: (event: any) => void) => {
             (listeners[type] ??= []).push(handler);
@@ -64,6 +71,14 @@ describe("readJsonScript", () => {
     it("parses the JSON in a script element", () => {
         const { doc } = makeDocument({ x: { textContent: '{"a":1}' } });
         expect(readJsonScript(doc, "x")).toEqual({ a: 1 });
+    });
+
+    it("looks among the JSON scripts, so an element of that id that page content put earlier in the document isn't taken for one", () => {
+        const { doc } = makeDocument({ x: { textContent: '{"ours":true}' } });
+        doc.getElementById = vi.fn(() => ({ textContent: '{"attacker":true}' }));
+        expect(readJsonScript(doc, "x")).toEqual({ ours: true });
+        expect(doc.querySelectorAll).toHaveBeenCalledWith('script[type="application/json"]');
+        expect(doc.getElementById).not.toHaveBeenCalled();
     });
 
     it("returns undefined when there's no such element, or its content isn't JSON", () => {
@@ -433,6 +448,23 @@ describe("startRouter", () => {
         const s = setup({ config: { ...config, prefix: "/other" } });
         await startRouter(s.routes, s.win, s.doc);
         expect(renderToString(vi.mocked(hydrateRoot).mock.calls[0][1] as any)).toBe("<p>id=7 path=/admin/users/7 param=undefined</p>");
+    });
+
+    it("puts the scroll position back on the page a document loaded on when it was saved there, and saves it on leaving", async () => {
+        const s = setup();
+        s.win.history.state = { rrScroll: { x: 3, y: 400 } };
+        await startRouter(s.routes, s.win, s.doc);
+        expect(s.win.scrollTo).toHaveBeenCalledWith(3, 400);
+
+        s.win.history.state = { other: 1 };
+        s.winListeners.pagehide[0]();
+        expect(s.win.history.replaceState).toHaveBeenCalledWith({ other: 1, rrScroll: { x: 10, y: 20 } }, "");
+    });
+
+    it("leaves the scroll position alone on a page there's nothing saved for", async () => {
+        const s = setup();
+        await startRouter(s.routes, s.win, s.doc);
+        expect(s.win.scrollTo).not.toHaveBeenCalled();
     });
 
     it("takes over scroll restoration, where the browser lets it be taken", async () => {

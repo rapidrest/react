@@ -217,7 +217,13 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
         const outputPrefix = isMultiAppForm ? fetchPrefix : "";
         const appExclude = app.exclude ?? [];
         const isExcluded = (route: string) =>
-            appExclude.some((pattern) => (typeof pattern === "string" ? pattern === route : pattern.test(route)));
+            appExclude.some((pattern) => {
+                if (typeof pattern === "string") return pattern === route;
+                // A `g` or `y` pattern remembers where its last match ended: without this, every second route it matches
+                // would be let through.
+                pattern.lastIndex = 0;
+                return pattern.test(route);
+            });
 
         // A discovered route template (e.g. "/pets/:id") can't be fetched as a literal URL by
         // itself — ask the live app (real DI, real config) which concrete instances of it it can
@@ -281,10 +287,23 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
     fs.rmSync(resolvedOutDir, { recursive: true, force: true });
     fs.mkdirSync(resolvedOutDir, { recursive: true });
 
+    // The client build goes in first, so a crawled page is never overwritten by a file of the same name in it. Not all of
+    // it is site: Vite's manifest (`.vite/manifest.json`) lists every source entry of the app, and nothing in a dot folder
+    // or a dotfile is served by a static host on purpose but `.well-known`.
+    if (fs.existsSync(assetsDir)) {
+        fs.cpSync(assetsDir, outDir, {
+            recursive: true,
+            filter: (source) =>
+                !path.relative(assetsDir, source).split(path.sep).some((part) => part.startsWith(".") && part !== ".well-known"),
+        });
+    }
+
     await runWithConcurrency(tasks, concurrency, async (task) => {
         const reportedPath = task.outputPrefix + task.route;
         try {
-            const res = await fetch(baseUrl + task.fetchPrefix + task.route);
+            // A redirect isn't the page: a gated page that sends visitors to a login page would otherwise be exported as
+            // that login page, with nothing to say it was.
+            const res = await fetch(baseUrl + task.fetchPrefix + task.route, { redirect: "manual" });
             const html = await res.text();
             if (res.status !== 200) {
                 result.errors.push({ path: reportedPath, status: res.status });
@@ -312,10 +331,6 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
         } catch (err) {
             result.errors.push({ path: NOT_FOUND_PROBE, error: err instanceof Error ? err.message : String(err) });
         }
-    }
-
-    if (fs.existsSync(assetsDir)) {
-        fs.cpSync(assetsDir, outDir, { recursive: true });
     }
 
     return result;

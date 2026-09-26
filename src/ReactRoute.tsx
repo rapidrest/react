@@ -17,7 +17,6 @@ import { RouterProvider } from "./routerContext.js";
 import { NAVIGATION_HEADER, ROUTER_CONFIG_ID, ROUTER_ENTRY_NAME, type RouterConfig } from "./routerCore.js";
 import {
     fillRouteTemplate,
-    matchRouteTemplate,
     parseDynamicSegmentName,
     STATIC_EXPORT_ENV_VAR,
     STATIC_PATHS_ROUTE,
@@ -55,18 +54,12 @@ function isSafeFileName(name: string): boolean {
 }
 
 /**
- * Canonical form of a URL path or `@ReactService` path for looking a service up: empty segments collapsed (so `/pets/`,
- * `//pets` and `/pets` are one path), each segment percent-decoded (`/%70ets` is `/pets`), always with a leading `/`.
+ * The key a `@ReactService` is registered and looked up by: its path with empty segments collapsed (`/pets/` is `/pets`)
+ * and each `:name` token reduced to `:`, so a service is the one of the page whose route template it matches by
+ * position (`/pets/:petId` serves `pets/[id].tsx`), whatever the params are called.
  */
-function normalizeServicePath(p: string): string {
-    const parts = p.split("/").filter(Boolean).map((part) => {
-        try {
-            return decodeURIComponent(part);
-        } catch {
-            return part;
-        }
-    });
-    return "/" + parts.join("/");
+function serviceKey(template: string): string {
+    return "/" + template.split("/").filter(Boolean).map((part) => (part.startsWith(":") ? ":" : part)).join("/");
 }
 
 /**
@@ -80,16 +73,20 @@ function extractTitle(html: string): string | undefined {
     return match[1].replace(/<!--[\s\S]*?-->/g, "").replace(/&(amp|lt|gt|quot|#x27|#39);/g, (_, name: string) => entities[name]);
 }
 
-const _hashCache: Map<string, string> = new Map();
-/** Upper bound on the production `resolvedFileCache`, so unique request URLs can't grow it without limit. */
-const MAX_RESOLVED_FILE_CACHE = 10000;
+/** A directory's entries, listed once (see `ReactRoute.listDir()`). */
+interface DirListing {
+    entries: fs.Dirent[];
+    names: Set<string>;
+}
 
 // Static SSE event bus shared across all ReactRoute instances in the process.
 const _devReloadEmitter = new EventEmitter();
 _devReloadEmitter.setMaxListeners(200);
 
 /** How many times, and how far apart, to look for the manifest again after a rebuild replaced it (see `watchManifest()`). */
-const MANIFEST_REWATCH_ATTEMPTS = 25;
+const MANIFEST_REWATCH_ATTEMPTS = 150;
+/** How many times to look for a manifest that doesn't exist yet when the server starts (the first build is still running). */
+const MANIFEST_FIRST_ATTEMPTS = 300;
 const MANIFEST_REWATCH_DELAY_MS = 200;
 
 const CACHE_BASE_KEY = "react.cache";
@@ -240,17 +237,29 @@ export class ReactRoute {
     private layout: ComponentType<PropsWithChildren<Record<string, any>>> | null = null;
 
     /**
-     * Caches resolveAppFile() lookups (production only — the app dir's file set is fixed once
-     * built, so repeat fs work per request is pure waste; dev mode always re-resolves so newly
-     * added/removed page files are picked up immediately).
+     * Caches the framework's own `_layout`/`_404`/`_500` lookups (production only — the app dir's file set is fixed once
+     * built; dev mode always re-resolves so newly added/removed files are picked up immediately). Only those, of which
+     * there are three per app: a cache keyed by the requested URL grows with every distinct one an anonymous client makes up.
      */
     private resolvedFileCache: Map<string, ResolvedAppFile | null> = new Map();
+
+    /**
+     * Production only: the entries of each directory of the app that a page lookup has listed. The set of directories is
+     * the app's own tree — only ones that exist are ever listed — so this is bounded by it, however many URLs are asked for.
+     */
+    private dirListings: Map<string, DirListing> = new Map();
+
+    /** Production only: the client assets of each page, found in the manifest once (see `memoizeAssets()`). */
+    private assetMemo: Map<string, any> = new Map();
 
     /**
      * In-flight render promises keyed by cache key, so concurrent requests for the same cold
      * cache entry share one render instead of each independently re-rendering (cache stampede).
      */
     private pendingRenders: Map<string, Promise<{ status: number; html: string }>> = new Map();
+
+    /** ...and the same for the JSON a client navigation is answered with. */
+    private pendingNavigations: Map<string, Promise<{ status: number; json: string }>> = new Map();
 
     @Logger
     protected logger: any;
@@ -277,17 +286,11 @@ export class ReactRoute {
     private routePrefix: string = "";
 
     /**
-     * A map of exact, literal paths to service class instances to use when fetching props during
-     * page rendering.
+     * The `@ReactService` instances to use when fetching props during page rendering, by `serviceKey()` of their path:
+     * a page's service is the one registered for its route template (`/pets`, `/pets/:id`), not one found by matching
+     * the URL, so a URL a page's params captured (`/admin%2fstats`) can never reach another page's service.
      */
     private services: Map<string, any> = new Map();
-
-    /**
-     * `@ReactService` registrations whose path contains a `:name` token, matched against a
-     * request's `pageSegment` via `matchRouteTemplate()` rather than an exact `Map` lookup.
-     * Checked in registration order; the first matching template wins (see `resolveService()`).
-     */
-    private dynamicServices: { template: string; instance: any }[] = [];
 
     @Init
     protected async init() {
@@ -313,16 +316,17 @@ export class ReactRoute {
         if (this.isDevMode() && manifestPath) {
             // If it doesn't exist yet — the first build hasn't run — there's no watcher; browser reload will still
             // happen via the server-restart SSE connection drop.
-            this.watchManifest(manifestPath);
+            // The first build may still be running (`rapidreact dev` starts it alongside the server), so keep looking.
+            if (!this.watchManifest(manifestPath)) this.rewatchManifest(manifestPath, MANIFEST_FIRST_ATTEMPTS);
         }
 
         // Scan the class loader for all classes that have been marked with @ReactService.
         // Awaited, so the services are registered before the first request can be served (and cached without them).
-        const registrations: Promise<void>[] = [];
+        const registrations: Promise<{ paths: string[]; instance: any } | undefined>[] = [];
         this.objectFactory?.classes.forEach((clazz, name) => registrations.push((async () => {
             // Ignore all non-class types
             if (!clazz?.prototype) {
-                return;
+                return undefined;
             }
 
             let routePaths: string[] | undefined = Reflect.getMetadata("rrst:reactServicePaths", clazz.prototype);
@@ -330,24 +334,22 @@ export class ReactRoute {
                 this.logger.debug(`Found react service. Name=${name}, Paths=${routePaths}`);
                 // Instantiate the react service and register in the map for each path configured.
                 const instance: any = await this.objectFactory?.newInstance(clazz, { name: "default" });
-                if (instance) {
-                    for (const rpath of routePaths) {
-                        // A service's path is the page's public URL, so this route only serves the ones under its own
-                        // prefix (whole segments: `/apple` isn't under `/app`); the rest belong to another mount.
-                        if (this.routePrefix && rpath !== this.routePrefix && !rpath.startsWith(this.routePrefix + "/")) {
-                            continue;
-                        }
-                        const pageSegment = rpath.slice(this.routePrefix.length) || "/";
-                        if (pageSegment.includes(":")) {
-                            this.dynamicServices.push({ template: pageSegment, instance });
-                        } else {
-                            this.services.set(normalizeServicePath(pageSegment), instance);
-                        }
-                    }
-                }
+                if (instance) return { paths: routePaths, instance };
             }
+            return undefined;
         })()));
-        await Promise.all(registrations);
+        // Registered in the order the classes were listed, not the order they happened to finish instantiating in, so
+        // which of two services claiming one page wins is the same every boot.
+        for (const registered of await Promise.all(registrations)) {
+            for (const rpath of registered?.paths ?? []) {
+                // A service's path is the page's public URL, so this route only serves the ones under its own
+                // prefix (whole segments: `/apple` isn't under `/app`); the rest belong to another mount.
+                if (this.routePrefix && rpath !== this.routePrefix && !rpath.startsWith(this.routePrefix + "/")) {
+                    continue;
+                }
+                this.services.set(serviceKey(rpath.slice(this.routePrefix.length) || "/"), registered!.instance);
+            }
+        }
     }
 
     /**
@@ -366,20 +368,14 @@ export class ReactRoute {
     }
 
     /**
-     * Resolves the `@ReactService` instance (if any) for a page segment: an exact literal match
-     * first, then the first registered dynamic template (`:name`-containing path) that matches.
-     * The template's own captured values are discarded here — `req.params` is already populated
-     * from the *page* resolver's capture in `renderPage()`, which runs first and stays the single
-     * source of truth, so a service's template param names don't strictly need to match the page's
-     * bracket names (though they should, by convention, for `fetchProps` to make sense).
+     * Resolves the `@ReactService` instance (if any) of a page, by the route template it was resolved to
+     * (`/pets/:id`) — the service registered for that template, however its `:name` tokens are spelled. A service's
+     * param names don't have to match the page's bracket names: `req.params` comes from the *page* resolver's capture,
+     * which stays the single source of truth (though they should match, by convention, for `fetchProps` to make sense).
+     * No page (the `_404` render) has no service.
      */
-    private resolveService(pageSegment: string): any {
-        const exact = this.services.get(normalizeServicePath(pageSegment));
-        if (exact) return exact;
-        for (const { template, instance } of this.dynamicServices) {
-            if (matchRouteTemplate(template, pageSegment) !== null) return instance;
-        }
-        return undefined;
+    private resolveService(template: string): any {
+        return template ? this.services.get(serviceKey(template)) : undefined;
     }
 
     /**
@@ -411,23 +407,22 @@ export class ReactRoute {
     }
 
     /**
-     * Computes a stable per-request cache key (MD5 of path + params + query + user identity).
+     * Computes a stable per-request cache key (MD5 of the app, path + params + query + user identity). The app
+     * (`appDir` and mount prefix) is part of it so two apps sharing one cache can't answer each other's URLs, and under
+     * the router so is the query string as written, since the page renders the location it was asked for.
      */
     protected hashRequest(req: HttpRequest): string {
         const key = "static." + JSON.stringify({
+            app: this.appDir,
+            prefix: this.routePrefix,
             path: req.path,
             params: req.params,
             query: this.canonicalizeQuery(req.query),
+            search: this.router ? this.requestSearch(req) : undefined,
             userUid: req.user?.uid,
             ...this.cacheKeyExtras(req),
         });
-        let hash = _hashCache.get(key);
-        if (!hash) {
-            hash = crypto.createHash("md5").update(key).digest("hex");
-            if (_hashCache.size >= 10000) _hashCache.clear();
-            _hashCache.set(key, hash);
-        }
-        return hash;
+        return crypto.createHash("md5").update(key).digest("hex");
     }
 
     /** Pending "reload" notification, so a burst of change events from one build produces a single reload. */
@@ -520,8 +515,8 @@ export class ReactRoute {
         internal: boolean = false
     ): Promise<ResolvedAppFile | null> {
         const isProduction = process.env.NODE_ENV === "production";
-        const cacheKey = `${internal ? "internal " : ""}${appDir} ${segment}`;
-        if (isProduction) {
+        const cacheKey = `${appDir} ${segment}`;
+        if (isProduction && internal) {
             const cached = this.resolvedFileCache.get(cacheKey);
             if (cached !== undefined) return cached;
         }
@@ -548,10 +543,7 @@ export class ReactRoute {
             parts.push(part);
         }
 
-        if (malformed) {
-            if (isProduction) this.cacheResolvedFile(cacheKey, null);
-            return null;
-        }
+        if (malformed) return null;
 
         // Detect whether we're running under a TypeScript transformer (tsx/ts-node),
         // or a test runner that transforms TS/JSX itself (Vitest, Jest). In either case
@@ -576,15 +568,8 @@ export class ReactRoute {
             // In dev (tsx) all TypeScript extensions are handled natively.
             : await this.walkAppDir(appDir, parts, suffixes, internal);
 
-        if (isProduction) {
-            this.cacheResolvedFile(cacheKey, result);
-        }
+        if (isProduction && internal) this.resolvedFileCache.set(cacheKey, result);
         return result;
-    }
-
-    private cacheResolvedFile(key: string, value: ResolvedAppFile | null): void {
-        if (this.resolvedFileCache.size >= MAX_RESOLVED_FILE_CACHE) this.resolvedFileCache.clear();
-        this.resolvedFileCache.set(key, value);
     }
 
     /** `fs.promises.access(F_OK)` as a boolean, swallowing the not-found/EACCES error. */
@@ -607,7 +592,28 @@ export class ReactRoute {
     }
 
     /**
-     * Scans `dir` for `[name]`-bracketed dynamic-segment candidates and returns the winning name,
+     * Lists `dir` (`null` when it can't be read), by the names it really has. A literal URL segment is matched against
+     * these rather than by asking the filesystem for the path, which a case-insensitive one (Windows, macOS) answers for
+     * any casing: `/PeTs` would resolve to `pets.tsx`, each casing a different module to Node's import cache, and
+     * the router's template would be built from the URL and not match any page. In production the listing is remembered.
+     */
+    private async listDir(dir: string): Promise<DirListing | null> {
+        const cached = this.dirListings.get(dir);
+        if (cached) return cached;
+        let entries: fs.Dirent[];
+        try {
+            entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        } catch {
+            return null;
+        }
+        const listing = { entries, names: new Set(entries.map((entry) => entry.name)) };
+        if (process.env.NODE_ENV === "production") this.dirListings.set(dir, listing);
+        return listing;
+    }
+
+    /**
+     * Scans a directory's entries (`dir` is only named in the warning) for `[name]`-bracketed dynamic-segment candidates
+     * and returns the winning name,
      * or `null` if there are none. Bracket directories are always considered; bracket-named files
      * matching one of `fileExts` are additionally considered when `fileExts` is non-null (only
      * meaningful at the final path segment — intermediate segments must be directories). On
@@ -616,14 +622,7 @@ export class ReactRoute {
      * misconfiguration that reproduces on every matching request, worth surfacing repeatedly) and
      * deterministically picks the lexicographically-smallest name.
      */
-    private async findDynamicSegmentName(dir: string, fileExts: string[] | null): Promise<string | null> {
-        let entries: fs.Dirent[];
-        try {
-            entries = await fs.promises.readdir(dir, { withFileTypes: true });
-        } catch {
-            return null;
-        }
-
+    private findDynamicSegmentName(dir: string, entries: fs.Dirent[], fileExts: string[] | null): string | null {
         const names = new Set<string>();
         for (const entry of entries) {
             if (entry.isDirectory()) {
@@ -673,9 +672,9 @@ export class ReactRoute {
         }
 
         const params: Record<string, string> = {};
-        // The route template of what's being resolved (`/pets/:id`), built as the walk goes: a literal segment stays as it
-        // is, and one that matched a `[name]` sibling becomes `:name`. It's what the client router matches on.
-        const templateParts: string[] = [];
+        // What the client router matches on is the route of the *file* — `/index` and `/pets/index` are `/` and `/pets` —
+        // never the URL's own spelling.
+        const templateOf = (file: string) => fileToRouteTemplate(path.relative(appRoot, file).replace(/\\/g, "/"));
         let currentDir = appRoot;
 
         for (let i = 0; i < parts.length; i++) {
@@ -687,42 +686,39 @@ export class ReactRoute {
             // one (those files aren't routes), except for the framework's own `internal` lookups of them.
             const literalOk = isSafeFileName(part) && (internal || !part.startsWith("_"));
 
+            const listing = await this.listDir(currentDir);
+            if (!listing) return null;
+
             if (!isLast) {
                 const literalDir = path.join(currentDir, part);
-                if (literalOk && (await this.isDirectory(literalDir))) {
+                if (literalOk && listing.names.has(part) && (await this.isDirectory(literalDir))) {
                     currentDir = literalDir;
-                    templateParts.push(part);
                     continue;
                 }
-                const bracketName = await this.findDynamicSegmentName(currentDir, null);
+                const bracketName = this.findDynamicSegmentName(currentDir, listing.entries, null);
                 if (!bracketName) return null;
                 params[bracketName] = part;
-                templateParts.push(`:${bracketName}`);
                 currentDir = path.join(currentDir, `[${bracketName}]`);
                 continue;
             }
 
             for (const suffix of literalOk ? suffixes : []) {
+                // The name the directory has to have: the file itself, or the directory that holds its `/index`.
+                if (!listing.names.has(suffix.startsWith("/") ? part : part + suffix)) continue;
                 const full = path.join(currentDir, part) + suffix;
-                if (await this.fileExists(full)) {
-                    return { file: full, params, template: "/" + [...templateParts, part].join("/") };
-                }
+                if (await this.fileExists(full)) return { file: full, params, template: templateOf(full) };
             }
 
             if (internal) return null;
 
             const fileExts = suffixes.filter((s) => !s.startsWith("/"));
-            const bracketName = await this.findDynamicSegmentName(currentDir, fileExts);
+            const bracketName = this.findDynamicSegmentName(currentDir, listing.entries, fileExts);
             if (!bracketName) return null;
             const bracketParams = { ...params, [bracketName]: part };
             for (const suffix of suffixes) {
                 const full = path.join(currentDir, `[${bracketName}]`) + suffix;
                 if (await this.fileExists(full)) {
-                    return {
-                        file: full,
-                        params: bracketParams,
-                        template: "/" + [...templateParts, `:${bracketName}`].join("/"),
-                    };
+                    return { file: full, params: bracketParams, template: templateOf(full) };
                 }
             }
             return null;
@@ -740,14 +736,14 @@ export class ReactRoute {
      */
     private async buildProps(
         req: HttpRequest,
-        pageSegment: string,
+        template: string,
         mod: any,
         dynamicParams: Record<string, string>
     ): Promise<any> {
         const pageFetchProps: ((req: HttpRequest) => Promise<any>) | undefined = mod.fetchProps;
 
-        // Check to see if there's a react service for this page path
-        const service: any = this.resolveService(pageSegment);
+        // Check to see if there's a react service for this page
+        const service: any = this.resolveService(template);
 
         // There are three levels of fetching props: Page => Service => Route. These are
         // independent data sources — fetch them concurrently rather than one at a time.
@@ -802,8 +798,6 @@ export class ReactRoute {
      * independently repeating this work.
      */
     private async renderPage(req: HttpRequest, pageSegment: string): Promise<{ status: number; html: string }> {
-        await this.ensureLayout();
-
         // Resolve page file — fall back to _404 when path has no matching file
         const resolved = await this.resolveAppFile(this.appDir, pageSegment);
         let pagePath = resolved?.file ?? null;
@@ -828,9 +822,12 @@ export class ReactRoute {
 
         let html: string;
         try {
+            // Inside the try: a layout that fails to load is a page that fails to render (it gets `_500`, and its
+            // error reported the same way), not an error nothing catches.
+            await this.ensureLayout();
             const mod = await import(pathToFileURL(pagePath).href);
             const PageComponent = mod.default;
-            const props = await this.buildProps(req, pageSegment, mod, dynamicParams);
+            const props = await this.buildProps(req, template, mod, dynamicParams);
 
             // `_404`/`_500` fallback pages are deliberately excluded from Vite's page-entry
             // scan (see findPageEntries in vite.ts), so they have no hydration bundle to inject —
@@ -865,11 +862,12 @@ export class ReactRoute {
             this.logger.error(`[ReactRoute] SSR error for "${req.path}":`, err);
             httpStatus = 500;
 
-            // Never forward the raw Error to the client in production — message/stack may
+            // Never forward the raw Error to the client outside development (an unset or unusual NODE_ENV counts as
+            // production, as for every other dev-only behaviour) — message/stack may
             // contain file paths or internal details. Full detail still reaches the log above.
-            const safeErr = process.env.NODE_ENV === "production"
-                ? { name: "Error", message: "Internal Server Error" }
-                : err;
+            const safeErr = this.isDevMode()
+                ? err
+                : { name: "Error", message: "Internal Server Error" };
 
             const errorResolved = await this.resolveAppFile(this.appDir, "_500", true);
             if (errorResolved) {
@@ -932,7 +930,7 @@ export class ReactRoute {
         // The same URL is answered with HTML or, to the client router asking for a page's data, JSON: a cache in
         // between must keep the two apart.
         if (this.router) {
-            (res as any).setHeader?.("Vary", NAVIGATION_HEADER);
+            this.appendVary(res);
             if (req.headers?.[NAVIGATION_HEADER.toLowerCase()] === "1") {
                 return this.handleNavigation(req, res, pageSegment);
             }
@@ -1026,8 +1024,23 @@ export class ReactRoute {
             }
         }
 
-        const result = await this.renderNavigation(req, pageSegment);
-        if (result.status === 200 && cacheClient && cacheKey) {
+        // One in-flight computation per key, as for the HTML: a page many browsers prefetch at once is worked out once.
+        let result: { status: number; json: string };
+        let isLeader = false;
+        const pending = cacheKey ? this.pendingNavigations.get(cacheKey) : undefined;
+        if (pending) {
+            result = await pending;
+        } else {
+            isLeader = true;
+            const computing = this.renderNavigation(req, pageSegment);
+            if (cacheKey) this.pendingNavigations.set(cacheKey, computing);
+            try {
+                result = await computing;
+            } finally {
+                if (cacheKey) this.pendingNavigations.delete(cacheKey);
+            }
+        }
+        if (isLeader && result.status === 200 && cacheClient && cacheKey) {
             Promise.resolve(cacheClient.save(cacheKey, { json: result.json }, this.cacheTTL)).catch((err) => {
                 this.logger.warn(`[ReactRoute] Failed to write cache for "${req.path}":`, err);
             });
@@ -1042,7 +1055,7 @@ export class ReactRoute {
         req.params = { ...req.params, ...resolved.params };
         try {
             const mod = await import(pathToFileURL(resolved.file).href);
-            const props = await this.buildProps(req, pageSegment, mod, resolved.params);
+            const props = await this.buildProps(req, resolved.template, mod, resolved.params);
             const { css } = this.resolveRouterAssets(resolved.file);
             const title = await this.renderTitle(props);
             return { status: 200, json: JSON.stringify({ route: resolved.template, props, css, ...(title !== undefined ? { title } : {}) }) };
@@ -1052,11 +1065,19 @@ export class ReactRoute {
         }
     }
 
+    /** Adds the navigation header to the response's `Vary`, keeping what an earlier middleware (CORS's `Origin`) put there. */
+    private appendVary(res: HttpResponse): void {
+        const existing = String((res as any).getHeader?.("Vary") ?? "");
+        const listed = existing.split(",").map((value) => value.trim().toLowerCase());
+        if (listed.includes(NAVIGATION_HEADER.toLowerCase())) return;
+        (res as any).setHeader?.("Vary", existing.trim() ? `${existing}, ${NAVIGATION_HEADER}` : NAVIGATION_HEADER);
+    }
+
     /** Sends a JSON response with the given status code, bypassing the middleware wrapper. */
     private sendJson(res: HttpResponse, status: number, json: string): HttpResponse {
         (res as any).status?.(status);
         (res as any).setHeader?.("content-type", "application/json");
-        (res as any).setHeader?.("Vary", NAVIGATION_HEADER);
+        this.appendVary(res);
         (res as any).setHeader?.("X-Content-Type-Options", "nosniff");
         (res as any).send?.(json);
         return res;
@@ -1180,7 +1201,7 @@ export class ReactRoute {
                 this.logger.warn(`[ReactRoute] getStaticPaths() failed for page "${relPath}":`, err);
             }
 
-            const service = this.dynamicServices.find((s) => s.template === template)?.instance;
+            const service = this.services.get(serviceKey(template));
             if (service && typeof service.getStaticPaths === "function") {
                 try {
                     addEntries(await service.getStaticPaths());
@@ -1220,15 +1241,14 @@ export class ReactRoute {
         const outDir = this.resolveOutDir();
         if (!outDir) return false;
 
+        // Most requests are for pages: only a path with a file extension we serve is worth touching the filesystem for.
+        const mimeType = ASSET_MIME_TYPES[path.extname(pageSegment)];
+        if (!mimeType) return false;
+
         const root = path.resolve(process.cwd(), outDir);
         const filePath = path.resolve(root, pageSegment.replace(/^\//, ""));
         // Reject any path that escapes the output directory (e.g. via `../` segments).
         if (filePath !== root && !filePath.startsWith(root + path.sep)) return false;
-        // Nor is anything in a dot folder or a dotfile part of the site: Vite writes its manifest to `.vite/`, which
-        // lists every source entry. (`.well-known/` is the one place the web puts files on purpose.)
-        if (path.relative(root, filePath).split(path.sep).some((part) => part.startsWith(".") && part !== ".well-known")) {
-            return false;
-        }
 
         let stat: fs.Stats;
         try {
@@ -1238,12 +1258,28 @@ export class ReactRoute {
         }
         if (!stat.isFile()) return false;
 
-        const ext = path.extname(filePath);
-        const mimeType = ASSET_MIME_TYPES[ext];
-        if (!mimeType) return false;
+        // Nor is anything in a dot folder or a dotfile part of the site: Vite writes its manifest to `.vite/`, which
+        // lists every source entry. (`.well-known/` is the one place the web puts files on purpose.) Judged by where the
+        // file really is, so neither a symlink out of the output directory nor a name the filesystem has another
+        // spelling of (Windows' 8.3 short names: `.vite` is also `VITE~1`) gets round it.
+        let realFile: string;
+        let realRoot: string;
+        try {
+            [realFile, realRoot] = await Promise.all([fs.promises.realpath(filePath), fs.promises.realpath(root)]);
+        } catch {
+            return false;
+        }
+        if (!realFile.startsWith(realRoot + path.sep)) return false;
+        if (path.relative(realRoot, realFile).split(path.sep).some((part) => part.startsWith(".") && part !== ".well-known")) {
+            return false;
+        }
 
         const data = await fs.promises.readFile(filePath);
         (res as any).setHeader?.("content-type", mimeType);
+        // A file Vite named for its content (`index-BvT3x9_a.js`) can never change: browsers and CDNs may keep it for good.
+        if (/-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/.test(path.basename(filePath))) {
+            (res as any).setHeader?.("cache-control", "public, max-age=31536000, immutable");
+        }
         (res as any).send?.(data);
         return true;
     }
@@ -1391,12 +1427,25 @@ export class ReactRoute {
         return walk(chunk);
     }
 
+    /**
+     * In production the manifest is fixed, so what it says about a page is worked out once: finding an entry searches the
+     * whole manifest, which every render and every navigation would otherwise repeat. (Only a page that has an entry is
+     * remembered; a page without one throws every time.)
+     */
+    private memoizeAssets<T>(key: string, compute: () => T): T {
+        if (process.env.NODE_ENV !== "production" || !this.manifest) return compute();
+        if (!this.assetMemo.has(key)) this.assetMemo.set(key, compute());
+        return this.assetMemo.get(key);
+    }
+
     private resolveClientUrls(pagePath: string): { js: string; css: string[] } {
-        const { manifest, entry } = this.findPageEntry(pagePath);
-        return {
-            js: `/${entry.file}`,
-            css: [...new Set(ReactRoute.collectChunkAssets(manifest, entry).css)].map((f) => `/${f}`),
-        };
+        return this.memoizeAssets(`client ${pagePath}`, () => {
+            const { manifest, entry } = this.findPageEntry(pagePath);
+            return {
+                js: `/${entry.file}`,
+                css: [...new Set(ReactRoute.collectChunkAssets(manifest, entry).css)].map((f) => `/${f}`),
+            };
+        });
     }
 
     /**
@@ -1417,6 +1466,10 @@ export class ReactRoute {
      * record in the manifest (see findPageEntry()); the router entry is the one built for the app's `appDir`.
      */
     private resolveRouterAssets(pagePath: string): { entry: string; css: string[]; preload: string[] } {
+        return this.memoizeAssets(`router ${pagePath}`, () => this.findRouterAssets(pagePath));
+    }
+
+    private findRouterAssets(pagePath: string): { entry: string; css: string[]; preload: string[] } {
         const { manifest, entry: pageEntry } = this.findPageEntry(pagePath);
 
         const appDir = ReactRoute.toCwdRelativePosix(this.appDir);

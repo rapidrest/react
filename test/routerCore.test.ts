@@ -9,9 +9,11 @@ import {
     compareTemplates,
     isHashChange,
     isInterceptableClick,
+    isHttpUrl,
     isPagePayload,
     matchClientRoute,
     PagePayload,
+    PREFETCH_MAX,
     PREFETCH_TTL_MS,
     resolveTarget,
     Router,
@@ -102,6 +104,20 @@ describe("resolveTarget", () => {
         expect(resolveTarget("javascript:alert(1)", base)).toBeNull();
         expect(resolveTarget("http://[", base)).toBeNull();
         expect(resolveTarget("/x", "not a url")).toBeNull();
+    });
+});
+
+describe("isHttpUrl", () => {
+    it("is true for an http(s) URL, absolute or relative to the base", () => {
+        expect(isHttpUrl("https://other.example/x", "https://example.com/")).toBe(true);
+        expect(isHttpUrl("/x", "http://example.com/")).toBe(true);
+    });
+
+    it("is false for anything else, and for what isn't a URL at all", () => {
+        expect(isHttpUrl("javascript:alert(1)", "https://example.com/")).toBe(false);
+        expect(isHttpUrl("data:text/html,x", "https://example.com/")).toBe(false);
+        expect(isHttpUrl("mailto:a@example.com", "https://example.com/")).toBe(false);
+        expect(isHttpUrl("http://", "https://example.com/")).toBe(false);
     });
 });
 
@@ -278,6 +294,40 @@ describe("Router", () => {
             expect(order).toEqual(["render", "prune"]);
         });
 
+        it("only moves to a #fragment of the page showing, without fetching or rendering anything", async () => {
+            const r = router();
+
+            expect(await r.navigate("#section")).toBe(true);
+            expect(await r.navigate("/admin/users#other", { replace: true, scroll: false })).toBe(true);
+
+            expect(fetchPayload).not.toHaveBeenCalled();
+            expect(platform.render).not.toHaveBeenCalled();
+            expect(platform.commitHistory).toHaveBeenNthCalledWith(1, expect.objectContaining({ hash: "#section" }), "push");
+            expect(platform.commitHistory).toHaveBeenNthCalledWith(2, expect.objectContaining({ hash: "#other" }), "replace");
+            expect(platform.settle).toHaveBeenNthCalledWith(1, expect.anything(), { restore: false, scroll: true });
+            expect(platform.settle).toHaveBeenNthCalledWith(2, expect.anything(), { restore: false, scroll: false });
+        });
+
+        it("sets the title before the page renders, so one the page sets for itself wins", async () => {
+            const order: string[] = [];
+            (platform.setTitle as any).mockImplementation(() => order.push("title"));
+            (platform.render as any).mockImplementation(() => order.push("render"));
+            fetchPayload.mockResolvedValueOnce({ ...payloadFor("/users/:id", { id: "7" }), title: "User 7" });
+
+            await router().navigate("/admin/users/7");
+
+            expect(order).toEqual(["title", "render"]);
+        });
+
+        it("doesn't send the browser anywhere that isn't an http(s) URL, whatever it was asked to navigate to", async () => {
+            expect(await router().navigate("javascript:alert(1)")).toBe(false);
+            expect(await router().navigate("data:text/html,x")).toBe(false);
+            expect(platform.hardNavigate).not.toHaveBeenCalled();
+
+            expect(await router().navigate("https://other.example/x")).toBe(false);
+            expect(platform.hardNavigate).toHaveBeenCalledWith("https://other.example/x");
+        });
+
         it("updates the history entry in place when asked to, or when it's the page already showing", async () => {
             await router().navigate("/admin/users/7", { replace: true });
             expect(platform.commitHistory).toHaveBeenLastCalledWith(expect.anything(), "replace");
@@ -421,9 +471,10 @@ describe("Router", () => {
 
     describe("popstate", () => {
         it("shows the page for where history went, without adding an entry, and restores its scroll position", async () => {
+            const r = router();
             current = new URL(ORIGIN + "/admin/users/7");
 
-            expect(await router().popstate()).toBe(true);
+            expect(await r.popstate()).toBe(true);
 
             expect(platform.commitHistory).not.toHaveBeenCalled();
             // The history entry is already the destination's: saving now would overwrite the scroll about to be restored.
@@ -433,9 +484,29 @@ describe("Router", () => {
         });
 
         it("has the browser load a page that isn't one of the app's", async () => {
+            const r = router();
             current = new URL(ORIGIN + "/elsewhere");
-            expect(await router().popstate()).toBe(false);
+            expect(await r.popstate()).toBe(false);
             expect(platform.hardNavigate).toHaveBeenCalledWith(ORIGIN + "/elsewhere");
+        });
+
+        it("leaves it to the browser when only the #fragment changed: the page showing is the page, and it keeps its state", async () => {
+            const r = router();
+            current = new URL(ORIGIN + "/admin/users#section");
+
+            expect(await r.popstate()).toBe(true);
+
+            expect(fetchPayload).not.toHaveBeenCalled();
+            expect(platform.render).not.toHaveBeenCalled();
+        });
+
+        it("does show the page when going back to one it left, even though it was on that URL before", async () => {
+            const r = router();
+            await r.navigate("/admin/users/7");
+            // Back to where it started: the page on screen is now /admin/users/7, so this is a different page.
+            current = new URL(ORIGIN + "/admin/users");
+            expect(await r.popstate()).toBe(true);
+            expect(platform.render).toHaveBeenCalledTimes(2);
         });
     });
 
@@ -473,6 +544,30 @@ describe("Router", () => {
             await r.navigate("/admin/users/7");
 
             expect(fetchPayload).toHaveBeenCalledTimes(2);
+        });
+
+        it("doesn't warm a page whose route starts with a :param: it answers for URLs something else may serve", async () => {
+            routes = [route("/"), route("/users"), route("/:slug")];
+            router().prefetch("/admin/logout");
+            expect(fetchPayload).not.toHaveBeenCalled();
+            // ...though a page with a literal first segment still is.
+            router().prefetch("/admin/users");
+            expect(fetchPayload).toHaveBeenCalledTimes(1);
+        });
+
+        it("drops a prefetched page that has expired, and the oldest beyond how many it keeps, as more are warmed", async () => {
+            routes = [route("/"), route("/users"), route("/users/:id")];
+            const r = router();
+            r.prefetch("/admin/users/1");
+            now = PREFETCH_TTL_MS;
+            r.prefetch("/admin/users/2");
+            expect((r as any).prefetched.has("/admin/users/1")).toBe(false);
+            expect((r as any).prefetched.has("/admin/users/2")).toBe(true);
+
+            for (let i = 3; i < 3 + PREFETCH_MAX + 5; i++) r.prefetch(`/admin/users/${i}`);
+            expect((r as any).prefetched.size).toBeLessThanOrEqual(PREFETCH_MAX);
+            expect((r as any).prefetched.has("/admin/users/2")).toBe(false);
+            expect((r as any).prefetched.has(`/admin/users/${3 + PREFETCH_MAX + 4}`)).toBe(true);
         });
 
         it("does nothing for anything navigate() wouldn't handle", () => {
