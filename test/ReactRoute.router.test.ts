@@ -5,6 +5,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { createElement } from "react";
 import { vi } from "vitest";
 import { HttpRequest, HttpResponse } from "@rapidrest/service-core";
 import { ReactRoute } from "../src/ReactRoute.js";
@@ -169,7 +170,8 @@ describe("ReactRoute router mode", () => {
             expect(html).toContain('<div id="react-root"><p data-param="7">pet 7</p></div>');
             expect(html).toContain(
                 '<script type="application/json" id="rapidrest-router">' +
-                    '{"prefix":"","route":"/pets/:id","rootId":"react-root","propsId":"react-props"}</script>',
+                    '{"prefix":"","route":"/pets/:id","rootId":"react-root","propsId":"react-props",' +
+                    '"css":["/assets/router.css","/assets/shared.css","/assets/pet.css"]}</script>',
             );
             expect(html).toContain('<script type="application/json" id="react-props">');
             expect(html).toContain('"petId":"7"');
@@ -262,6 +264,65 @@ describe("ReactRoute router mode", () => {
                 route: "/pets/:id",
                 props: { params: { id: "7" }, petId: "7" },
                 css: ["/assets/router.css", "/assets/shared.css", "/assets/pet.css"],
+                // What the layout renders as the title: nothing else re-renders the layout in the browser.
+                title: "router fixture",
+            });
+        });
+
+        describe("the title", () => {
+            const send = async (r: RouterRoute, url = "/pets/7") => {
+                const res = fakeResponse();
+                await r.get(navigation({ path: url, url }), res);
+                return JSON.parse(res.send.mock.calls[0][0]);
+            };
+            const layoutOf = (title: (props: any) => string | undefined) => ({ children, petId }: any) =>
+                createElement("html", null, createElement("head", null, title(petId) === undefined ? null : createElement("title", null, title(petId))), createElement("body", null, children));
+
+            it("follows the page: it is the layout's title for that page's props", async () => {
+                const r = route();
+                (r as any).layout = layoutOf((petId) => `Pet ${petId}`);
+                expect((await send(r)).title).toBe("Pet 7");
+            });
+
+            it("is the text as a browser reads it: entities decoded", async () => {
+                const r = route();
+                (r as any).layout = layoutOf((petId) => `Pet ${petId} & "co" <b> it's`);
+                expect((await send(r)).title).toBe(`Pet 7 & "co" <b> it's`);
+            });
+
+            it("reads a title with attributes, and the first of several", async () => {
+                const r = route();
+                (r as any).layout = ({ children }: any) =>
+                    createElement("html", null, createElement("head", null, createElement("title", { id: "t" }, "First"), createElement("title", null, "Second")), createElement("body", null, children));
+                expect((await send(r)).title).toBe("First");
+            });
+
+            it("is left out when the layout has no title", async () => {
+                const r = route();
+                (r as any).layout = layoutOf(() => undefined);
+                expect("title" in (await send(r))).toBe(false);
+            });
+
+            it("is left out when there is no layout", async () => {
+                class NoLayoutRoute extends RouterRoute {
+                    protected async resolveAppFile(appDir: string, segment: string, internal?: boolean) {
+                        return segment === "_layout" ? null : super.resolveAppFile(appDir, segment, internal);
+                    }
+                }
+                const payload = await send(route(NoLayoutRoute));
+                expect(payload.route).toBe("/pets/:id");
+                expect("title" in payload).toBe(false);
+            });
+
+            it("costs the navigation its title, not the navigation, when the layout fails to render", async () => {
+                const r = route();
+                (r as any).layout = () => {
+                    throw new Error("layout broke");
+                };
+                const payload = await send(r);
+                expect(payload.route).toBe("/pets/:id");
+                expect("title" in payload).toBe(false);
+                expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("title"), expect.any(Error));
             });
         });
 

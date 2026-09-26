@@ -459,8 +459,8 @@ describe("ReactRoute.init Tests", () => {
         expect(route.getServiceFor("/app/slow")).toBe(instance);
     });
 
-    it("Maps a react service under its raw path when that path does not start with the route prefix.", async () => {
-        @ReactService("/other/svc")
+    it("Leaves a react service to the route it belongs to: one whose path isn't under this route's prefix isn't mapped.", async () => {
+        @ReactService(["/other/svc", "/", "/apple", "/app/svc"])
         class OtherService {
             async fetchProps() {
                 return { fromService: true };
@@ -477,7 +477,12 @@ describe("ReactRoute.init Tests", () => {
         route.setLogger(noopLogger);
         route.setObjectFactory(fakeObjectFactory as any);
         await route.callInit();
-        await vi.waitFor(() => expect(route.getServiceFor("/other/svc")).toBe(instance));
+
+        // Only "/app/svc" is under "/app" — "/apple" merely starts with the same letters.
+        expect(route.getServiceFor("/svc")).toBe(instance);
+        for (const other of ["/other/svc", "/", "/apple", "/le", "/app/svc"]) {
+            expect(route.getServiceFor(other), other).toBeUndefined();
+        }
     });
 
     it("Maps a react service to pageSegment '/' when its path is exactly the route prefix.", async () => {

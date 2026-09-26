@@ -48,6 +48,7 @@ function makeDocument(elements: Record<string, any> = {}) {
         createElement: vi.fn(() => ({})),
         getElementById: vi.fn((id: string) => elements[id] ?? null),
         querySelectorAll: vi.fn(() => links.filter((l) => l.rel === "stylesheet")),
+        title: "before",
         addEventListener: vi.fn((type: string, handler: (event: any) => void) => {
             (listeners[type] ??= []).push(handler);
         }),
@@ -73,12 +74,12 @@ describe("readJsonScript", () => {
 });
 
 describe("createBrowserPlatform", () => {
-    function setup(href = HREF) {
+    function setup(href = HREF, initialStyles?: string[]) {
         const { win, timers } = makeWindow(href);
         const { doc, links } = makeDocument();
         const container = makeContainer();
         const render = vi.fn();
-        const platform = createBrowserPlatform(win, doc, container, render);
+        const platform = createBrowserPlatform(win, doc, container, render, initialStyles);
         return { win, doc, links, timers, container, render, platform };
     }
 
@@ -187,6 +188,54 @@ describe("createBrowserPlatform", () => {
         });
     });
 
+    describe("pruneStyles", () => {
+        const sheet = (href: string) => ({ rel: "stylesheet", href, remove: vi.fn() });
+
+        it("removes the stylesheets the server put in for the first page when the next page doesn't need them", () => {
+            const { platform, links } = setup(HREF, ["/first.css", "/shared.css"]);
+            const [first, shared, layout] = [sheet("https://example.com/first.css"), sheet("https://example.com/shared.css"), sheet("https://example.com/layout.css")];
+            links.push(first, shared, layout);
+
+            platform.pruneStyles(["/shared.css", "/second.css"]);
+
+            expect(first.remove).toHaveBeenCalled();
+            expect(shared.remove).not.toHaveBeenCalled();
+            // Not one of a page's: a layout's own stylesheet is never touched.
+            expect(layout.remove).not.toHaveBeenCalled();
+        });
+
+        it("removes the ones a navigation added once a later page doesn't need them, and forgets them", async () => {
+            const { platform, links } = setup();
+            const done = platform.ensureStyles(["/added.css"]);
+            links[0].onload();
+            await done;
+            links[0].remove = vi.fn();
+
+            platform.pruneStyles(["/other.css"]);
+            expect(links[0].remove).toHaveBeenCalledTimes(1);
+
+            // Gone from the page, so it's no longer one of the page's to remove.
+            platform.pruneStyles(["/other.css"]);
+            expect(links[0].remove).toHaveBeenCalledTimes(1);
+        });
+
+        it("keeps a stylesheet the next page needs, however it's written", async () => {
+            const { platform, links } = setup(HREF, ["/a.css"]);
+            const a = sheet("https://example.com/a.css");
+            links.push(a);
+            platform.pruneStyles(["https://example.com/a.css"]);
+            expect(a.remove).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("setTitle", () => {
+        it("sets the document's title", () => {
+            const { platform, doc } = setup();
+            platform.setTitle("A page");
+            expect(doc.title).toBe("A page");
+        });
+    });
+
     describe("history", () => {
         it("records the scroll position on the current entry, keeping what else is in its state", () => {
             const { platform, win } = setup();
@@ -288,7 +337,7 @@ describe("startRouter", () => {
         };
         if (!container) delete elements[cfg?.rootId ?? "react-root"];
         const { win, listeners: winListeners } = makeWindow(over.href);
-        const { doc, listeners: docListeners } = makeDocument(elements);
+        const { doc, listeners: docListeners, links } = makeDocument(elements);
         const load = vi.fn(async () => ({ default: Page }));
         const routes = [
             { template: "/users", load: vi.fn(async () => ({ default: Page })) },
@@ -296,7 +345,7 @@ describe("startRouter", () => {
         ];
         const render = vi.fn();
         vi.mocked(hydrateRoot).mockReturnValue({ render } as any);
-        return { win, doc, winListeners, docListeners, routes, load, render, container };
+        return { win, doc, winListeners, docListeners, links, routes, load, render, container };
     }
 
     const click = (target: any, over: Record<string, any> = {}) => ({
@@ -358,6 +407,26 @@ describe("startRouter", () => {
         expect(container).toBe(s.container);
         // What the server rendered, inside the same provider: the location is available to the page, and matches.
         expect(renderToString(element as any)).toBe("<p>id=7 path=/admin/users/7 param=7</p>");
+    });
+
+    it("takes the first page's stylesheets out again, and follows the title, when it navigates to another page", async () => {
+        const s = setup({ config: { ...config, css: ["/first.css"] } });
+        const first = { rel: "stylesheet", href: "https://example.com/first.css", remove: vi.fn() };
+        const layout = { rel: "stylesheet", href: "https://example.com/layout.css", remove: vi.fn() };
+        s.links.push(first, layout);
+        s.win.fetch.mockResolvedValue({
+            ok: true,
+            redirected: false,
+            headers: { get: () => "application/json" },
+            json: async () => ({ route: "/users", props: {}, css: [], title: "Users" }),
+        });
+        const router = await startRouter(s.routes, s.win, s.doc);
+
+        expect(await router!.navigate("/admin/users")).toBe(true);
+
+        expect(first.remove).toHaveBeenCalledTimes(1);
+        expect(layout.remove).not.toHaveBeenCalled();
+        expect(s.doc.title).toBe("Users");
     });
 
     it("hydrates a page at the mount root, and one outside its prefix, without a crash over the params", async () => {

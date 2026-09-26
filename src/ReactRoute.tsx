@@ -69,6 +69,17 @@ function normalizeServicePath(p: string): string {
     return "/" + parts.join("/");
 }
 
+/**
+ * The text of the first `<title>` in `html`, as a browser would read it, or `undefined` when there isn't one. React
+ * escapes `& < > " '` in text, and separates adjacent text nodes with `<!-- -->`.
+ */
+function extractTitle(html: string): string | undefined {
+    const match = /<title(?:\s[^>]*)?>([\s\S]*?)<\/title>/i.exec(html);
+    if (!match) return undefined;
+    const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#x27": "'", "#39": "'" };
+    return match[1].replace(/<!--[\s\S]*?-->/g, "").replace(/&(amp|lt|gt|quot|#x27|#39);/g, (_, name: string) => entities[name]);
+}
+
 const _hashCache: Map<string, string> = new Map();
 /** Upper bound on the production `resolvedFileCache`, so unique request URLs can't grow it without limit. */
 const MAX_RESOLVED_FILE_CACHE = 10000;
@@ -321,9 +332,12 @@ export class ReactRoute {
                 const instance: any = await this.objectFactory?.newInstance(clazz, { name: "default" });
                 if (instance) {
                     for (const rpath of routePaths) {
-                        const pageSegment = this.routePrefix && rpath.startsWith(this.routePrefix)
-                            ? rpath.slice(this.routePrefix.length) || "/"
-                            : rpath;
+                        // A service's path is the page's public URL, so this route only serves the ones under its own
+                        // prefix (whole segments: `/apple` isn't under `/app`); the rest belong to another mount.
+                        if (this.routePrefix && rpath !== this.routePrefix && !rpath.startsWith(this.routePrefix + "/")) {
+                            continue;
+                        }
+                        const pageSegment = rpath.slice(this.routePrefix.length) || "/";
                         if (pageSegment.includes(":")) {
                             this.dynamicServices.push({ template: pageSegment, instance });
                         } else {
@@ -754,6 +768,32 @@ export class ReactRoute {
         };
     }
 
+    /** Lazy-loads the global layout, on the first request that needs it. */
+    private async ensureLayout(): Promise<void> {
+        if (this.layout) return;
+        const layoutResolved = await this.resolveAppFile(this.appDir, "_layout", true);
+        if (layoutResolved) {
+            const layoutMod = await import(pathToFileURL(layoutResolved.file).href);
+            this.layout = layoutMod.default;
+        }
+    }
+
+    /**
+     * The `<title>` the layout renders for a page's props, for a client navigation (the browser doesn't render the
+     * layout again, so the title would otherwise stay the first page's). `undefined` when there's no layout or it has no
+     * title; a layout that fails to render costs the navigation its title, not the navigation.
+     */
+    private async renderTitle(props: any): Promise<string | undefined> {
+        try {
+            await this.ensureLayout();
+            const Layout = this.layout;
+            return Layout ? extractTitle(renderToString(<Layout {...props}>{null}</Layout>)) : undefined;
+        } catch (err) {
+            this.logger.warn(`[ReactRoute] Could not render the layout's title for a navigation:`, err);
+            return undefined;
+        }
+    }
+
     /**
      * Renders a page for the given request: resolves the layout/page file, fetches props,
      * runs SSR (falling back to `_404`/`_500` as needed), and injects the dev-reload script.
@@ -762,14 +802,7 @@ export class ReactRoute {
      * independently repeating this work.
      */
     private async renderPage(req: HttpRequest, pageSegment: string): Promise<{ status: number; html: string }> {
-        // Lazy-load the global layout on first request
-        if (!this.layout) {
-            const layoutResolved = await this.resolveAppFile(this.appDir, "_layout", true);
-            if (layoutResolved) {
-                const layoutMod = await import(pathToFileURL(layoutResolved.file).href);
-                this.layout = layoutMod.default;
-            }
-        }
+        await this.ensureLayout();
 
         // Resolve page file — fall back to _404 when path has no matching file
         const resolved = await this.resolveAppFile(this.appDir, pageSegment);
@@ -1011,7 +1044,8 @@ export class ReactRoute {
             const mod = await import(pathToFileURL(resolved.file).href);
             const props = await this.buildProps(req, pageSegment, mod, resolved.params);
             const { css } = this.resolveRouterAssets(resolved.file);
-            return { status: 200, json: JSON.stringify({ route: resolved.template, props, css }) };
+            const title = await this.renderTitle(props);
+            return { status: 200, json: JSON.stringify({ route: resolved.template, props, css, ...(title !== undefined ? { title } : {}) }) };
         } catch (err) {
             this.logger.error(`[ReactRoute] Error computing props for navigation to "${req.path}":`, err);
             return { status: 500, json: JSON.stringify({ status: 500 }) };
@@ -1179,7 +1213,8 @@ export class ReactRoute {
     /**
      * Serves a built hydration asset (e.g. `/assets/app/pets.tsx-abc123.js`, referenced by
      * `injectHydrationAssets`) directly from Vite's output directory, bypassing SSR/page
-     * resolution entirely. Returns `true` if the request was handled.
+     * resolution entirely. Returns `true` if the request was handled. Never serves from outside the output
+     * directory, nor from a dot folder inside it (`.vite/manifest.json`) other than `.well-known`.
      */
     private async tryServeAsset(pageSegment: string, res: HttpResponse): Promise<boolean> {
         const outDir = this.resolveOutDir();
@@ -1189,6 +1224,11 @@ export class ReactRoute {
         const filePath = path.resolve(root, pageSegment.replace(/^\//, ""));
         // Reject any path that escapes the output directory (e.g. via `../` segments).
         if (filePath !== root && !filePath.startsWith(root + path.sep)) return false;
+        // Nor is anything in a dot folder or a dotfile part of the site: Vite writes its manifest to `.vite/`, which
+        // lists every source entry. (`.well-known/` is the one place the web puts files on purpose.)
+        if (path.relative(root, filePath).split(path.sep).some((part) => part.startsWith(".") && part !== ".well-known")) {
+            return false;
+        }
 
         let stat: fs.Stats;
         try {
@@ -1409,6 +1449,7 @@ export class ReactRoute {
             route: template,
             rootId: this.hydrateRootId,
             propsId: this.hydratePropsId,
+            css,
         };
         const configTag = `<script type="application/json" id="${ROUTER_CONFIG_ID}">${this.escapeForInlineScript(JSON.stringify(config))}</script>`;
         const propsTag = `<script type="application/json" id="${this.hydratePropsId}">${this.escapeForInlineScript(JSON.stringify(props))}</script>`;

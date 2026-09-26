@@ -58,6 +58,16 @@ describe("matchRouteTemplate", () => {
         expect(matchRouteTemplate("/pets/:id", "/pets/42/reviews/7")).toBeNull();
     });
 
+    it("Matches a literal segment against its URI-decoded form, as a page file named with spaces or non-ASCII is requested.", () => {
+        expect(matchRouteTemplate("/café/:id", "/caf%C3%A9/7")).toEqual({ id: "7" });
+        expect(matchRouteTemplate("/my page", "/my%20page")).toEqual({});
+    });
+
+    it("Compares a literal segment with a malformed escape as written.", () => {
+        expect(matchRouteTemplate("/a%zz", "/a%zz")).toEqual({});
+        expect(matchRouteTemplate("/a", "/a%zz")).toBeNull();
+    });
+
     it("Returns null when a literal segment does not match.", () => {
         expect(matchRouteTemplate("/pets/featured", "/pets/42")).toBeNull();
     });

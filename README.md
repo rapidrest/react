@@ -286,8 +286,11 @@ reloads, and browsers without JavaScript see no difference). The client just tak
 the router hydrates the page it was served, and from then on a click on a same-app link fetches
 that page's data from the server (the same URL, asked for as JSON), loads its module and
 stylesheets, and swaps it into place. `_layout.tsx` is part of the server-rendered document and
-stays as it is — only the page inside it changes. Back/forward, scroll position, and `<title>`/
-`<meta>` set from a page (React 19 hoists them) work as they do for a normal page load.
+stays as it is — only the page inside it changes — with one exception: the layout's `<title>` is
+rendered by the server for each page's props and sent along with its data, so the tab's title
+follows the page. Anything else the layout renders from page props (an active nav item, say) is
+what the first page showed, so keep that in the page. Back/forward, scroll position, and stylesheets
+(the ones a page brings are removed again when it is left) work as they do for a normal page load.
 
 Use `Link` for internal links — it prefetches a page when it is hovered or focused — and the hooks
 to read or change where the page is:

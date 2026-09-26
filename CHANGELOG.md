@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a file or directory whose name starts with `_` being served as a page (`GET /_layout`, `GET /_components/Button`) although the convention is that it isn't a route; no URL resolves to one now, though a `[dynamic]` segment can still capture such a value
 - Fixed a missing `_404.tsx` or `_layout.tsx` being replaced by a root `[dynamic]` page, which the lookup for it matched as if it were that file
 - Fixed a `@ReactService` not being found for its page when the URL is written with a trailing or doubled slash or percent-encoding (`/pets/`, `//pets`, `/%70ets`), so the page rendered without its service's props
+- Fixed `GET /.vite/manifest.json` (and anything else in a dot folder or a dotfile of the client build, other than `.well-known`) being served by the built-in asset handler
+- Fixed a `@ReactService` being registered on a route it isn't under the prefix of, so a root app's `@ReactService("/")` also ran for an admin app's `/` page; a path is now under a prefix only in whole segments (`/apple` isn't under `/app`), and one that isn't under the route's prefix is no longer kept as written
+- Fixed the document's title staying the first page's after client navigation by rendering the layout's `<title>` for each page's props on the server and sending it with the page's data
+- Fixed the stylesheets of a page navigated away from staying in the document, and applying to every page after it; the ones the server put in for the first page and the ones a navigation added are removed when a page doesn't need them, and a layout's own are never touched
+- Fixed the client router never matching a page whose file name has spaces or non-ASCII characters (`café.tsx`), so every link to it was a full page load, by comparing a route's literal segments against the decoded URL
+- Fixed `exclude` of a route template (`"/pets/:id"`) in a static export leaving the pages enumerated for it (`/pets/1`) in the export
 
 ## [2.0.0-beta.3] - 2026-09-15
 

@@ -50,7 +50,8 @@ export interface DocumentLike {
     head: { appendChild(node: any): any };
     createElement(tag: string): any;
     getElementById(id: string): any;
-    querySelectorAll(selector: string): ArrayLike<{ href: string }>;
+    querySelectorAll(selector: string): ArrayLike<{ href: string; remove(): void }>;
+    title: string;
     addEventListener(type: string, handler: (event: any) => void): void;
 }
 
@@ -74,7 +75,13 @@ export function createBrowserPlatform(
     doc: DocumentLike,
     container: { focus(options?: any): void; setAttribute(name: string, value: string): void; style: { outline: string } },
     render: (page: RenderedPage) => void,
+    initialStyles: string[] = [],
 ): RouterPlatform {
+    const absolute = (href: string) => new URL(href, win.location.href).href;
+    // The stylesheets that belong to pages (the server's for the first one, and each one added since), as opposed to a
+    // layout's own, which nothing here has any business removing.
+    const pageStyles = new Set(initialStyles.map(absolute));
+
     // The container is what gets focus after a navigation (so a screen reader's cursor moves to the new page, as it
     // would after a load); it's not something to tab to, and shouldn't be outlined as if it were.
     container.setAttribute("tabindex", "-1");
@@ -100,8 +107,9 @@ export function createBrowserPlatform(
 
         ensureStyles(hrefs: string[]): Promise<void> {
             const present = new Set(Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).map((link) => link.href));
-            const loading = hrefs
-                .map((href) => new URL(href, win.location.href).href)
+            const wanted = hrefs.map(absolute);
+            wanted.forEach((href) => pageStyles.add(href));
+            const loading = wanted
                 .filter((href) => !present.has(href))
                 .map(
                     (href) =>
@@ -117,6 +125,18 @@ export function createBrowserPlatform(
                         }),
                 );
             return Promise.all(loading).then(() => undefined);
+        },
+
+        pruneStyles(keep: string[]) {
+            const kept = new Set(keep.map(absolute));
+            for (const link of Array.from(doc.querySelectorAll('link[rel="stylesheet"]'))) {
+                if (pageStyles.has(link.href) && !kept.has(link.href)) link.remove();
+            }
+            for (const href of [...pageStyles]) if (!kept.has(href)) pageStyles.delete(href);
+        },
+
+        setTitle(title: string) {
+            doc.title = title;
         },
 
         render,
@@ -238,7 +258,13 @@ export async function startRouter(
             createElement(RouteBoundary, { key: ++renders, onError: recover }, createElement(page.component, page.props)),
         );
 
-    const platform = createBrowserPlatform(win, doc, container, (page) => flushSync(() => root.render(element(page))));
+    const platform = createBrowserPlatform(
+        win,
+        doc,
+        container,
+        (page) => flushSync(() => root.render(element(page))),
+        config.css,
+    );
     router = new Router(routes, config.prefix, platform);
 
     const url = new URL(win.location.href);

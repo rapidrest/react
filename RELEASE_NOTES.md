@@ -19,7 +19,8 @@
   * Back/forward and scroll position are restored, and only the latest of overlapping navigations is applied.
   * What to know when adopting it: the JSON responses carry `Vary: X-Rapidrest-Navigation`, so a cache or CDN in
     front of the app must respect `Vary`; and the layout doesn't re-render between pages, so keep per-page content
-    (including `<title>`) in the pages.
+    in the pages. (The layout's `<title>` is the exception: the server renders it for each page's props and sends it
+    with the page's data, so the tab's title follows the page.)
 
 ### Changed
 
@@ -53,6 +54,22 @@
 * Client navigation: navigating to a page that is already loading no longer falls back to a full page load, and going
   back or forward no longer overwrites the scroll position about to be restored.
 * `runStaticExport()` no longer leaves the static-paths endpoint enabled when the server fails to start.
+* **`GET /.vite/manifest.json` was served to anyone.** The built-in asset handler served any file with a known
+  extension from the client build's output directory, including Vite's manifest, which lists every source entry of the
+  app. It no longer serves anything from a dot folder or a dotfile (`.well-known/` excepted).
+* A `@ReactService` is only registered on the route whose prefix its path is under, counted in whole segments: a
+  root app's `@ReactService("/")` no longer also runs for an admin app's `/` page, and `/apple` is not under `/app`. A
+  service whose path isn't under the route's prefix was previously kept as written, which is how it ended up on
+  another app's pages — write the path as the page's public URL, prefix included.
+* **Client navigation keeps the tab's title and stylesheets in step with the page.** The title the layout renders for
+  the new page's props is sent with its data and set, where it used to stay the first page's; and the stylesheets a
+  page brought are removed again when it is left, where they used to pile up and apply to every page after it.
+  (`RouterConfig` gained `css` and `PagePayload` gained `title`, both optional.)
+* A page file named with spaces or non-ASCII characters (`café.tsx`) is matched by the client router: a route's literal
+  segments are compared against the URL's decoded, where the raw `caf%C3%A9` never matched and every link to the page
+  was a full page load.
+* `exclude: ["/pets/:id"]` in a static export now excludes the concrete pages enumerated for that dynamic route as well
+  as its entry in `dynamicRoutes`; it used to drop only the latter.
 * **A file or directory starting with `_` is no longer served as a page.** The convention (`_layout`, `_404`, `_500`, and
   helper components you keep next to your pages) has always been that such a name isn't a route, and page discovery,
   Vite entries and static export honoured it — but a request for `/_layout` or `/_components/Button` still rendered the

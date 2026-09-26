@@ -17,12 +17,22 @@ export function parseDynamicSegmentName(basename: string): string | null {
 /**
  * Matches a `:name`-style route template (e.g. `"/pets/:id/reviews/:reviewId"`) against a
  * concrete request path (e.g. `"/pets/42/reviews/7"`), segment by segment. Literal segments must
- * match exactly; `:name` segments match (and capture, URI-decoded) anything. Returns `null` on any
+ * match exactly once the request's segment is URI-decoded (a page file named `café.tsx` is `/caf%C3%A9` in a URL);
+ * `:name` segments match (and capture, URI-decoded) anything. Returns `null` on any
  * mismatch, including a differing segment count — there is no catch-all/rest support, matching
  * `@rapidrest/service-core`'s own route-param convention (`:name` only, `req.params` is always
  * `Record<string, string>`).
  */
 const PARAM_TOKEN_RE = /^:([^/]+)$/;
+
+/** `decodeURIComponent()`, but a malformed escape is left as written instead of throwing. */
+function decodeSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
+}
 export function matchRouteTemplate(template: string, actualPath: string): Record<string, string> | null {
     const templateParts = template.split("/").filter(Boolean);
     const actualParts = actualPath.split("/").filter(Boolean);
@@ -37,7 +47,7 @@ export function matchRouteTemplate(template: string, actualPath: string): Record
             } catch {
                 return null;
             }
-        } else if (templateParts[i] !== actualParts[i]) {
+        } else if (templateParts[i] !== decodeSegment(actualParts[i])) {
             return null;
         }
     }

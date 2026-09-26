@@ -42,6 +42,11 @@ export interface RouterConfig {
     rootId: string;
     /** Element id of the serialized props `<script>`. */
     propsId: string;
+    /**
+     * The stylesheets the server put in the page for it. They're the page's to take out again when it's navigated away
+     * from (whichever of them the next page needs stays), unlike a layout's own `<link>`s, which are never touched.
+     */
+    css?: string[];
 }
 
 /** The JSON a navigation request is answered with. */
@@ -52,6 +57,11 @@ export interface PagePayload {
     props: any;
     /** Stylesheets the page needs, as URLs. */
     css: string[];
+    /**
+     * The document's `<title>` as the layout renders it for this page's props, when there is a layout with one. The
+     * layout itself isn't rendered again by the browser, so this is what keeps the tab's title following the page.
+     */
+    title?: string;
 }
 
 /** A page that's ready to be put on screen. */
@@ -78,6 +88,10 @@ export interface RouterPlatform {
     fetchPayload(url: URL, signal: AbortSignal): Promise<PagePayload | null>;
     /** Resolves once every one of `hrefs` is loaded as a stylesheet (adding the ones that aren't). */
     ensureStyles(hrefs: string[]): Promise<void>;
+    /** Removes the stylesheets of pages already left that the page now showing (which needs `keep`) doesn't need. */
+    pruneStyles(keep: string[]): void;
+    /** Sets the document's title. */
+    setTitle(title: string): void;
     /** Puts `page` on screen, synchronously (the new URL is already current when this is called). */
     render(page: RenderedPage): void;
     /** Records the scroll position on the current history entry, so going back can return to it. */
@@ -207,7 +221,8 @@ export function isPagePayload(value: any): value is PagePayload {
         typeof value.route === "string" &&
         "props" in value &&
         Array.isArray(value.css) &&
-        value.css.every((href: unknown) => typeof href === "string")
+        value.css.every((href: unknown) => typeof href === "string") &&
+        (value.title === undefined || typeof value.title === "string")
     );
 }
 
@@ -367,6 +382,8 @@ export class Router {
                 route: match.route.template,
             });
             this.platform.settle(target, { restore, scroll });
+            if (payload.title !== undefined) this.platform.setTitle(payload.title);
+            this.platform.pruneStyles(payload.css);
             return true;
         } catch {
             // Overtaken while it failed (its request was aborted, most likely): not this navigation's problem any more.

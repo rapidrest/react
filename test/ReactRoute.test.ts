@@ -644,6 +644,11 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         fs.writeFileSync(path.join(outDir, "assets", "bundle-abc123.js"), "console.log('hi');");
         fs.writeFileSync(path.join(outDir, "assets", "malicious.exe"), "not a real asset");
         fs.writeFileSync(path.join(outDir, "assets", "logo.webp"), "fake webp bytes");
+        fs.mkdirSync(path.join(outDir, ".vite"), { recursive: true });
+        fs.writeFileSync(path.join(outDir, ".vite", "manifest.json"), "{}");
+        fs.mkdirSync(path.join(outDir, ".well-known"), { recursive: true });
+        fs.writeFileSync(path.join(outDir, ".well-known", "assetlinks.json"), "[\"Contact\"]");
+        fs.writeFileSync(path.join(outDir, "assets", ".hidden.js"), "secret");
     });
 
     afterAll(() => {
@@ -674,6 +679,23 @@ describe("ReactRoute.tryServeAsset Tests", () => {
         const handled = await route.callTryServeAsset("/assets/logo.webp", res);
         expect(handled).toBe(true);
         expect(calls.headers["content-type"]).toBe("image/webp");
+    });
+
+    it("Doesn't serve Vite's manifest, or anything else in a dot folder or dotfile.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        for (const segment of ["/.vite/manifest.json", "/assets/.hidden.js", "/.vite/../.vite/manifest.json"]) {
+            const { res } = fakeResponse();
+            expect(await route.callTryServeAsset(segment, res), segment).toBe(false);
+        }
+    });
+
+    it("Still serves from .well-known.", async () => {
+        const route = new TestableReactRoute();
+        route.setManifestPath(path.join(outDir, ".vite", "manifest.json"));
+        const { res, calls } = fakeResponse();
+        expect(await route.callTryServeAsset("/.well-known/assetlinks.json", res)).toBe(true);
+        expect(calls.body.toString()).toContain("Contact");
     });
 
     it("Returns false for a file that does not exist under outDir.", async () => {

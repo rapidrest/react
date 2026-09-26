@@ -157,6 +157,11 @@ describe("isInterceptableClick", () => {
 });
 
 describe("isPagePayload", () => {
+    it("accepts a title, and only a string for one", () => {
+        expect(isPagePayload({ route: "/", props: {}, css: [], title: "Home" })).toBe(true);
+        expect(isPagePayload({ route: "/", props: {}, css: [], title: 3 })).toBe(false);
+    });
+
     it("accepts a well-formed payload, whatever the props are", () => {
         expect(isPagePayload({ route: "/a", props: {}, css: ["/a.css"] })).toBe(true);
         expect(isPagePayload({ route: "/a", props: null, css: [] })).toBe(true);
@@ -204,6 +209,8 @@ describe("Router", () => {
             location: () => current,
             fetchPayload: fetchPayload as any,
             ensureStyles: vi.fn(async () => undefined),
+            pruneStyles: vi.fn(),
+            setTitle: vi.fn(),
             render: vi.fn(),
             saveScroll: vi.fn(),
             commitHistory: vi.fn((url: URL) => {
@@ -249,6 +256,26 @@ describe("Router", () => {
             });
             expect(platform.settle).toHaveBeenCalledWith(expect.anything(), { restore: false, scroll: true });
             expect(platform.hardNavigate).not.toHaveBeenCalled();
+        });
+
+        it("sets the document's title to the one the server rendered for the page, when there is one", async () => {
+            fetchPayload.mockResolvedValueOnce({ ...payloadFor("/users/:id", { id: "7" }), title: "User 7" });
+            await router().navigate("/admin/users/7");
+            expect(platform.setTitle).toHaveBeenCalledWith("User 7");
+
+            await router().navigate("/admin/users/new");
+            expect(platform.setTitle).toHaveBeenCalledTimes(1);
+        });
+
+        it("removes the stylesheets of the page it came from, keeping the ones the new page needs, once it's on screen", async () => {
+            const order: string[] = [];
+            (platform.render as any).mockImplementation(() => order.push("render"));
+            (platform.pruneStyles as any).mockImplementation(() => order.push("prune"));
+
+            await router().navigate("/admin/users/7");
+
+            expect(platform.pruneStyles).toHaveBeenCalledWith(["/a.css"]);
+            expect(order).toEqual(["render", "prune"]);
         });
 
         it("updates the history entry in place when asked to, or when it's the page already showing", async () => {

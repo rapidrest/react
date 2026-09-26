@@ -26,7 +26,9 @@ export interface StaticExportApp {
     /** Extra prefix-free route paths to crawl for this app, beyond what `appDir` discovers. */
     paths?: string[];
     /** Route paths to skip for this app (e.g. auth-gated/personalized pages that shouldn't be
-     * baked into a public static export). Matched against the prefix-free route path. */
+     * baked into a public static export). Matched against the prefix-free route path. A string
+     * containing `:name` tokens (`"/pets/:id"`) is a route template: it excludes the dynamic route
+     * itself and every concrete page enumerated for it (`/pets/1`, `/pets/2`, ...). */
     exclude?: (string | RegExp)[];
 }
 
@@ -242,10 +244,13 @@ export async function exportStaticSite(options: StaticExportOptions): Promise<St
 
         const enumeratedRoutes: string[] = [];
         for (const template of discoveredTemplates) {
+            // Excluding a template excludes the dynamic route as a whole — the concrete pages it would have
+            // enumerated as well as its entry in `dynamicRoutes` (a literal page beside it is a page of its own).
+            if (isExcluded(template)) continue;
             const concretePaths = enumerated[template];
             if (concretePaths && concretePaths.length > 0) {
                 enumeratedRoutes.push(...concretePaths);
-            } else if (!isExcluded(template)) {
+            } else {
                 result.dynamicRoutes.push({ path: outputPrefix + template });
             }
         }

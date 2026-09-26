@@ -303,6 +303,25 @@ describe("exportStaticSite against a real server", () => {
         expect(paths).not.toContain("/pets/2");
         expect(paths).toContain("/pets/featured");
     });
+
+    it("Excludes a dynamic route's enumerated concrete instances when a route template is excluded.", async () => {
+        const result = await withStaticExportMode(() => exportStaticSite({
+            port: server.port,
+            appDir: "test/app",
+            routePrefix: "/app",
+            outDir: tmpDir,
+            assetsDir: noAssets(),
+            notFound: false,
+            exclude: ["/pets/:id"],
+        }));
+
+        const paths = result.pages.map((p) => p.path);
+        expect(paths).not.toContain("/pets/1");
+        expect(paths).not.toContain("/pets/2");
+        // Only `/pets/:id`'s instances: the literal page beside them and the deeper template are untouched.
+        expect(paths).toContain("/pets/featured");
+        expect(result.dynamicRoutes.map((r) => r.path)).toEqual(["/pets/:id/reviews/:reviewId"]);
+    });
 });
 
 describe("exportStaticSite edge cases", () => {
