@@ -49,7 +49,14 @@ const { ContentType, Get, Request, Response } = RouteDecorators;
 /* v8 ignore next -- see comment above: the untaken half of this branch requires a second process running the compiled dist */
 register(import.meta.url.endsWith(".tsx") ? "./ssrAssetLoaderHooks.ts" : "./ssrAssetLoaderHooks.js", import.meta.url);
 
+/** Whether a decoded URL segment is safe to use as a single literal file or directory name. */
+function isSafeFileName(name: string): boolean {
+    return !/[\/\\\0]/.test(name);
+}
+
 const _hashCache: Map<string, string> = new Map();
+/** Upper bound on the production `resolvedFileCache`, so unique request URLs can't grow it without limit. */
+const MAX_RESOLVED_FILE_CACHE = 10000;
 
 // Static SSE event bus shared across all ReactRoute instances in the process.
 const _devReloadEmitter = new EventEmitter();
@@ -284,7 +291,9 @@ export class ReactRoute {
         }
 
         // Scan the class loader for all classes that have been marked with @ReactService.
-        this.objectFactory?.classes.forEach(async (clazz, name) => {
+        // Awaited, so the services are registered before the first request can be served (and cached without them).
+        const registrations: Promise<void>[] = [];
+        this.objectFactory?.classes.forEach((clazz, name) => registrations.push((async () => {
             // Ignore all non-class types
             if (!clazz?.prototype) {
                 return;
@@ -308,7 +317,23 @@ export class ReactRoute {
                     }
                 }
             }
-        });
+        })()));
+        await Promise.all(registrations);
+    }
+
+    /**
+     * The request's query string with its leading `?` (or `""` when there is none). Some server adapters (uWS) leave the
+     * query out of `req.url` and only provide it parsed as `req.query`, so it's rebuilt from that when `req.url` has none.
+     */
+    private requestSearch(req: any): string {
+        const url: string = req.url ?? "";
+        if (url.includes("?")) return url.slice(url.indexOf("?"));
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(req.query ?? {})) {
+            for (const v of Array.isArray(value) ? value : [value]) params.append(key, String(v));
+        }
+        const search = params.toString();
+        return search ? "?" + search : "";
     }
 
     /**
@@ -489,7 +514,7 @@ export class ReactRoute {
         }
 
         if (malformed) {
-            if (isProduction) this.resolvedFileCache.set(cacheKey, null);
+            if (isProduction) this.cacheResolvedFile(cacheKey, null);
             return null;
         }
 
@@ -517,9 +542,14 @@ export class ReactRoute {
             : await this.walkAppDir(appDir, parts, suffixes);
 
         if (isProduction) {
-            this.resolvedFileCache.set(cacheKey, result);
+            this.cacheResolvedFile(cacheKey, result);
         }
         return result;
+    }
+
+    private cacheResolvedFile(key: string, value: ResolvedAppFile | null): void {
+        if (this.resolvedFileCache.size >= MAX_RESOLVED_FILE_CACHE) this.resolvedFileCache.clear();
+        this.resolvedFileCache.set(key, value);
     }
 
     /** `fs.promises.access(F_OK)` as a boolean, swallowing the not-found/EACCES error. */
@@ -616,9 +646,13 @@ export class ReactRoute {
             const part = parts[i];
             const isLast = i === parts.length - 1;
 
+            // A decoded segment holding a path separator or NUL (`..%2f..%2fx`) can only ever be a value
+            // captured into a `[dynamic]` param — never a literal name to probe on disk.
+            const literalOk = isSafeFileName(part);
+
             if (!isLast) {
                 const literalDir = path.join(currentDir, part);
-                if (await this.isDirectory(literalDir)) {
+                if (literalOk && (await this.isDirectory(literalDir))) {
                     currentDir = literalDir;
                     templateParts.push(part);
                     continue;
@@ -631,7 +665,7 @@ export class ReactRoute {
                 continue;
             }
 
-            for (const suffix of suffixes) {
+            for (const suffix of literalOk ? suffixes : []) {
                 const full = path.join(currentDir, part) + suffix;
                 if (await this.fileExists(full)) {
                     return { file: full, params, template: "/" + [...templateParts, part].join("/") };
@@ -752,7 +786,7 @@ export class ReactRoute {
                 <RouterProvider
                     location={{
                         pathname: req.path,
-                        search: (req.url ?? "").includes("?") ? req.url.slice(req.url.indexOf("?")) : "",
+                        search: this.requestSearch(req),
                         params: dynamicParams,
                         route: template,
                     }}
@@ -1158,8 +1192,8 @@ export class ReactRoute {
             `(function p(){fetch('/').then(function(){location.reload();})` +
             `.catch(function(){setTimeout(p,800);});})();};` +
             `})();</script>`;
-        if (html.includes("</body>")) return html.replace("</body>", script + "</body>");
-        if (html.includes("</html>")) return html.replace("</html>", script + "</html>");
+        if (html.includes("</body>")) return html.replace("</body>", () => script + "</body>");
+        if (html.includes("</html>")) return html.replace("</html>", () => script + "</html>");
         return html + script;
     }
 
@@ -1360,10 +1394,10 @@ export class ReactRoute {
 
         let result = html;
         if (result.includes("</head>")) {
-            result = result.replace("</head>", headTags + "</head>");
+            result = result.replace("</head>", () => headTags + "</head>");
         }
-        if (result.includes("</body>")) return result.replace("</body>", bodyTags + "</body>");
-        if (result.includes("</html>")) return result.replace("</html>", bodyTags + "</html>");
+        if (result.includes("</body>")) return result.replace("</body>", () => bodyTags + "</body>");
+        if (result.includes("</html>")) return result.replace("</html>", () => bodyTags + "</html>");
         return result + bodyTags;
     }
 
@@ -1376,11 +1410,11 @@ export class ReactRoute {
 
         let result = html;
         if (cssLinks && result.includes("</head>")) {
-            result = result.replace("</head>", cssLinks + "</head>");
+            result = result.replace("</head>", () => cssLinks + "</head>");
         }
         const bodyInjection = propsTag + bundleTag;
-        if (result.includes("</body>")) return result.replace("</body>", bodyInjection + "</body>");
-        if (result.includes("</html>")) return result.replace("</html>", bodyInjection + "</html>");
+        if (result.includes("</body>")) return result.replace("</body>", () => bodyInjection + "</body>");
+        if (result.includes("</html>")) return result.replace("</html>", () => bodyInjection + "</html>");
         return result + bodyInjection;
     }
 }

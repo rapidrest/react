@@ -219,6 +219,8 @@ export interface RouteMatch {
 
 interface Prefetched {
     at: number;
+    /** The signal the entry's request was made with; once aborted the entry can never produce a page. */
+    signal: AbortSignal;
     payload: Promise<PagePayload | null>;
     module: Promise<{ default: any }>;
 }
@@ -279,6 +281,7 @@ export class Router {
     private start(url: URL, route: ClientRoute, signal: AbortSignal, key: string): Prefetched {
         const entry: Prefetched = {
             at: this.now(),
+            signal,
             payload: this.platform.fetchPayload(url, signal),
             module: route.load(),
         };
@@ -338,7 +341,7 @@ export class Router {
             const key = Router.key(target);
             const cached = this.prefetched.get(key);
             const entry =
-                cached && this.now() - cached.at < PREFETCH_TTL_MS
+                cached && !cached.signal.aborted && this.now() - cached.at < PREFETCH_TTL_MS
                     ? cached
                     : this.start(target, match.route, controller.signal, key);
             const [payload, module] = await Promise.all([entry.payload, entry.module]);
@@ -352,7 +355,9 @@ export class Router {
             await this.platform.ensureStyles(payload.css);
             if (superseded()) return true;
 
-            this.platform.saveScroll();
+            // Going back or forward, the history entry is already the destination's, so what's on screen is not its
+            // scroll position to save — saving it would overwrite the one about to be restored.
+            if (!restore) this.platform.saveScroll();
             if (mode) this.platform.commitHistory(target, mode);
             this.platform.render({
                 component: module.default,

@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed the dev server crashing on Windows, and staying down until the next file change, whenever a client rebuild replaced the Vite manifest: the `fs.watch` on it emitted an unhandled `'error'` (`EPERM`), which Node treats as fatal
 - Fixed live reload silently stopping after the first rebuild on platforms where the watcher survives the manifest being replaced but keeps watching the deleted file
+- Fixed a request path with an encoded slash or backslash (`/..%2f..%2fscripts%2fseed`) resolving to, importing and rendering a `.js`/`.jsx`/`.tsx` module outside `appDir`; such a segment can now only be captured as a `[dynamic]` param value
+- Fixed hydration props containing `$&`, `` $` ``, `$'` or `$$` being corrupted, and the page being spliced into the props, because they were injected with `String.replace` and a replacement string
+- Fixed the production page-resolution cache growing without limit as distinct URLs were requested; it is now capped at 10,000 entries
+- Fixed `@ReactService` classes being registered after `init()` had already resolved, so a request right after startup rendered (and cached) a page without its service's props, and a service whose constructor threw crashed the process with an unhandled rejection
+- Fixed `useRouter().search` (and anything reading the location) being empty during server rendering under uWS, which leaves the query out of `req.url`, while the browser hydrated it with the query
+- Fixed navigating to the page already loading (a double click) falling back to a full page load instead of the latest navigation winning
+- Fixed going back or forward overwriting the scroll position about to be restored with the one of the page being left
+- Fixed `runStaticExport()` leaving the static-paths endpoint enabled in the process when the server failed to start
 
 ## [2.0.0-beta.3] - 2026-09-15
 

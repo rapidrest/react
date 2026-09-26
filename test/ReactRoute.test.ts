@@ -305,6 +305,36 @@ describe("ReactRoute.resolveAppFile Tests", () => {
         }
     });
 
+    it("Returns null for a traversal attempt smuggled through an encoded slash or backslash.", async () => {
+        // `%2f` decodes to a `/` inside a single segment; joined onto the app dir it would resolve
+        // to the real src/ReactRoute.tsx (or, in the middle of a path, back into the app dir).
+        expect(await route.callResolveAppFile("test/app", "/..%2f..%2fsrc%2fReactRoute")).toBeNull();
+        expect(await route.callResolveAppFile("test/app", "/..%5c..%5csrc%5cReactRoute")).toBeNull();
+        expect(await route.callResolveAppFile("test/app", "/..%2fapp/index")).toBeNull();
+        expect(await route.callResolveAppFile("test/app", "/index%00")).toBeNull();
+    });
+
+    it("Still captures an encoded slash into a dynamic segment's param without touching the filesystem with it.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/pets/..%2f..%2fsrc%2fReactRoute");
+        expect(result?.file).toMatch(/pets[\\/]\[id\]\.tsx$/);
+        expect(result?.params).toEqual({ id: "../../src/ReactRoute" });
+    });
+
+    it("Bounds the production resolved-file cache instead of growing with every distinct URL.", async () => {
+        const original = process.env.NODE_ENV;
+        const cachingRoute = new TestableReactRoute();
+        try {
+            process.env.NODE_ENV = "production";
+            for (let i = 0; i < 10005; i++) {
+                await cachingRoute.callResolveAppFile("test/app", `/%E0%A4%A/${i}`);
+            }
+            expect((cachingRoute as any).resolvedFileCache.size).toBeLessThanOrEqual(10000);
+            expect((cachingRoute as any).resolvedFileCache.size).toBeGreaterThan(0);
+        } finally {
+            process.env.NODE_ENV = original;
+        }
+    });
+
     it("Resolves a single dynamic segment leaf file, capturing its value into params.", async () => {
         const result = await route.callResolveAppFile("test/app", "/pets/123");
         expect(result).not.toBeNull();

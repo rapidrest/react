@@ -195,9 +195,17 @@ describe("ReactRoute router mode", () => {
             expect(html).toContain('data-search=""');
         });
 
+        it("rebuilds the search from the parsed query when the adapter leaves it out of the url", async () => {
+            const req = fakeRequest({ path: "/", url: "/", query: { a: "1", b: ["x", "y z"] } });
+            const html: string = await route().get(req, fakeResponse());
+            expect(html).toContain('data-search="?a=1&amp;b=x&amp;b=y+z"');
+        });
+
         it("treats a request with no url at all as having no query", async () => {
             const html: string = await route().get(fakeRequest({ path: "/", url: undefined }), fakeResponse());
             expect(html).toContain('data-search=""');
+            const noQuery: string = await route().get(fakeRequest({ path: "/", url: undefined, query: undefined }), fakeResponse());
+            expect(noQuery).toContain('data-search=""');
         });
 
         it("hydrates without hydrate being set: the router implies it", async () => {

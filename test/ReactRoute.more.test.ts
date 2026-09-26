@@ -419,6 +419,18 @@ describe("ReactRoute.init Tests", () => {
         expect(route.getServiceFor("/app/svc")).toBeUndefined();
     });
 
+    it("Waits for react services to be instantiated before init() resolves.", async () => {
+        @ReactService("/app/slow")
+        class SlowService {}
+        const instance = new SlowService();
+        const newInstance = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(instance), 20)));
+        const route = new TestableReactRoute();
+        route.setLogger(noopLogger);
+        route.setObjectFactory({ classes: new Map<string, any>([["SlowService", SlowService]]), newInstance } as any);
+        await route.callInit();
+        expect(route.getServiceFor("/app/slow")).toBe(instance);
+    });
+
     it("Maps a react service under its raw path when that path does not start with the route prefix.", async () => {
         @ReactService("/other/svc")
         class OtherService {
@@ -945,6 +957,27 @@ describe("ReactRoute.injectHydrationAssets Tests", () => {
             route.setManifestPath(manifestPath);
             const result = route.callInjectHydrationAssets("<body></body>", undefined, pagePath);
             expect(result).toContain('id="react-props">null</script>');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it("Injects props containing String.replace '$' patterns verbatim rather than expanding them.", () => {
+        delete process.env.NODE_ENV;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-inject-dollar-"));
+        const manifestPath = path.join(dir, "manifest.json");
+        const pagePath = path.resolve(process.cwd(), "test/app/index.tsx");
+        const entryKey = path.relative(process.cwd(), pagePath).replace(/\\/g, "/");
+        fs.writeFileSync(manifestPath, JSON.stringify({ [entryKey]: { file: "assets/bundle.js" } }));
+        try {
+            const route = new TestableReactRoute();
+            route.setLogger(noopLogger);
+            route.setManifestPath(manifestPath);
+            const props ={ q: "$`$&$'$$" };
+            const result = route.callInjectHydrationAssets("<body>PAGE</body>", props, pagePath);
+            const match = /id="react-props">(.*?)<\/script>/.exec(result);
+            expect(JSON.parse(match![1])).toEqual(props);
+            expect(result.split("PAGE").length).toBe(2);
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }

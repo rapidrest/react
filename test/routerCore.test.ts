@@ -338,6 +338,26 @@ describe("Router", () => {
             expect(platform.hardNavigate).not.toHaveBeenCalled();
         });
 
+        it("navigates to the same page again, while it's still loading, without falling back to a full load", async () => {
+            // Like a real fetch: fails once its signal is aborted.
+            fetchPayload.mockImplementation(
+                (url: URL, signal: AbortSignal) =>
+                    new Promise<PagePayload>((resolve, reject) => {
+                        signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+                        setTimeout(() => resolve(payloadFor("/users/:id", { id: "1" })), 5);
+                    }),
+            );
+            const r = router();
+
+            const first = r.navigate("/admin/users/1");
+            const second = r.navigate("/admin/users/1");
+
+            expect(await second).toBe(true);
+            expect(await first).toBe(true);
+            expect(platform.hardNavigate).not.toHaveBeenCalled();
+            expect(platform.render).toHaveBeenCalledTimes(1);
+        });
+
         it("doesn't treat the failure of an overtaken navigation as a reason to load its page", async () => {
             let rejectFirst!: (e: Error) => void;
             fetchPayload.mockImplementation((url: URL) =>
@@ -379,6 +399,8 @@ describe("Router", () => {
             expect(await router().popstate()).toBe(true);
 
             expect(platform.commitHistory).not.toHaveBeenCalled();
+            // The history entry is already the destination's: saving now would overwrite the scroll about to be restored.
+            expect(platform.saveScroll).not.toHaveBeenCalled();
             expect(platform.render).toHaveBeenCalledWith(expect.objectContaining({ props: { id: "7" } }));
             expect(platform.settle).toHaveBeenCalledWith(expect.anything(), { restore: true, scroll: true });
         });

@@ -38,6 +38,21 @@
 * **Live reload could stop after the first rebuild.** Where the watcher doesn't error but keeps watching the manifest
   that was replaced (it reports a `'rename'`), it never heard about any later build. A `'rename'` now also re-watches
   the new file.
+* **A request path with an encoded slash or backslash could load a module from outside `appDir`.** Page resolution
+  rejected `.` and `..` segments but not a segment such as `..%2f..%2fscripts%2fseed`, which decodes to a path that
+  leaves the app directory; the server would `import()` any `.js`, `.jsx` or `.tsx` file found there (running its
+  top-level code) and render its default export. A decoded segment containing `/`, `\` or a NUL can now only be
+  captured as the value of a `[dynamic]` segment (`/files/a%2Fb` still gives `id = "a/b"`), never used as a file name.
+* Hydration props containing `$&`, `` $` ``, `$'` or `$$` were mangled — and could pull the whole page into the props
+  script — because they were spliced in with `String.replace` and a replacement string. They are now inserted verbatim.
+* The production page-resolution cache is capped at 10,000 entries instead of growing with every distinct URL.
+* `@ReactService` classes are now registered before `init()` resolves, so the first requests after startup no longer
+  render (and cache) a page without its service's props.
+* The server-rendered location's `search` is no longer empty under uWS, which leaves the query out of `req.url`, so
+  `useRouter().search` renders the same on the server as in the browser.
+* Client navigation: navigating to a page that is already loading no longer falls back to a full page load, and going
+  back or forward no longer overwrites the scroll position about to be restored.
+* `runStaticExport()` no longer leaves the static-paths endpoint enabled when the server fails to start.
 
 ## v2.0.0-beta.3
 

@@ -336,11 +336,14 @@ export async function runStaticExport(
     const server = new Server(serverOptions);
     const originalEnvVar = process.env[STATIC_EXPORT_ENV_VAR];
     process.env[STATIC_EXPORT_ENV_VAR] = "true";
-    await server.start();
     try {
-        return await exportStaticSite({ port: server.port, ...exportOptions });
+        await server.start();
+        try {
+            return await exportStaticSite({ port: server.port, ...exportOptions });
+        } finally {
+            await server.stop();
+        }
     } finally {
-        await server.stop();
         if (originalEnvVar === undefined) {
             delete process.env[STATIC_EXPORT_ENV_VAR];
         } else {

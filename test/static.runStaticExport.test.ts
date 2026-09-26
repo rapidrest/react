@@ -67,6 +67,19 @@ describe("runStaticExport", () => {
         expect(process.env[STATIC_EXPORT_ENV_VAR]).toBeUndefined();
     });
 
+    it("Restores STATIC_EXPORT_ENV_VAR even when the server fails to start.", async () => {
+        delete process.env[STATIC_EXPORT_ENV_VAR];
+        startMock.mockRejectedValueOnce(new Error("port in use"));
+        stopMock.mockClear();
+
+        await expect(
+            runStaticExport({ config: {} as any, basePath: "." }, { appDir: "test/fixtures/does-not-exist" })
+        ).rejects.toThrow("port in use");
+
+        expect(process.env[STATIC_EXPORT_ENV_VAR]).toBeUndefined();
+        expect(stopMock).not.toHaveBeenCalled();
+    });
+
     it("Restores STATIC_EXPORT_ENV_VAR to its prior value afterward, rather than deleting it, " +
         "when it was already set before the call.", async () => {
         process.env[STATIC_EXPORT_ENV_VAR] = "was-already-here";
