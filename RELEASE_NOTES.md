@@ -53,6 +53,16 @@
 * Client navigation: navigating to a page that is already loading no longer falls back to a full page load, and going
   back or forward no longer overwrites the scroll position about to be restored.
 * `runStaticExport()` no longer leaves the static-paths endpoint enabled when the server fails to start.
+* **A file or directory starting with `_` is no longer served as a page.** The convention (`_layout`, `_404`, `_500`, and
+  helper components you keep next to your pages) has always been that such a name isn't a route, and page discovery,
+  Vite entries and static export honoured it — but a request for `/_layout` or `/_components/Button` still rendered the
+  file, running its `fetchProps()`, and under hydration or the router logged a manifest error on every hit. Those URLs
+  now answer 404. The framework's own lookups of `_layout`, `_404` and `_500` are unaffected. If you relied on a `_`
+  page being reachable by URL, rename it. (`ReactRoute.resolveAppFile()` gained an optional third parameter, `internal`,
+  for those lookups; subclasses overriding it with two parameters keep working.)
+* A missing `_404.tsx`/`_layout.tsx` is no longer stood in for by a root-level `[dynamic]` page.
+* A `@ReactService` is now found however its page's URL is written: `/pets/`, `//pets` and `/%70ets` reach the service
+  registered at `/pets`, as they reach the page, instead of rendering the page without the service's props.
 
 ## v2.0.0-beta.3
 

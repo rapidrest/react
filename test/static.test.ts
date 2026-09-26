@@ -135,17 +135,16 @@ describe("exportStaticSite against a real server", () => {
     it("Crawls extra explicit paths and records non-200 responses as errors, not thrown.", async () => {
         const result = await exportStaticSite({
             port: server.port,
-            appDir: "test/app",
-            routePrefix: "/app",
+            appDir: "test/app-throws",
+            routePrefix: "/throws-app",
             outDir: tmpDir,
             assetsDir: noAssets(),
             notFound: false,
-            paths: ["/_throws"],
         });
 
-        expect(result.errors).toEqual([{ path: "/_throws", status: 500 }]);
-        expect(result.pages.some((p) => p.path === "/_throws")).toBe(false);
-        expect(fs.existsSync(path.join(tmpDir, "_throws", "index.html"))).toBe(false);
+        expect(result.errors).toEqual([{ path: "/", status: 500 }]);
+        expect(result.pages).toEqual([]);
+        expect(fs.existsSync(path.join(tmpDir, "index.html"))).toBe(false);
     });
 
     it("Copies assetsDir verbatim into outDir when it exists.", async () => {

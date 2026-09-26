@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed navigating to the page already loading (a double click) falling back to a full page load instead of the latest navigation winning
 - Fixed going back or forward overwriting the scroll position about to be restored with the one of the page being left
 - Fixed `runStaticExport()` leaving the static-paths endpoint enabled in the process when the server failed to start
+- Fixed a file or directory whose name starts with `_` being served as a page (`GET /_layout`, `GET /_components/Button`) although the convention is that it isn't a route; no URL resolves to one now, though a `[dynamic]` segment can still capture such a value
+- Fixed a missing `_404.tsx` or `_layout.tsx` being replaced by a root `[dynamic]` page, which the lookup for it matched as if it were that file
+- Fixed a `@ReactService` not being found for its page when the URL is written with a trailing or doubled slash or percent-encoding (`/pets/`, `//pets`, `/%70ets`), so the page rendered without its service's props
 
 ## [2.0.0-beta.3] - 2026-09-15
 

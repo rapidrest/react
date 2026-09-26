@@ -60,9 +60,10 @@ class TestableReactRoute extends ReactRoute {
 
     public callResolveAppFile(
         appDir: string,
-        segment: string
+        segment: string,
+        internal?: boolean
     ): Promise<{ file: string; params: Record<string, string> } | null> {
-        return this.resolveAppFile(appDir, segment);
+        return this.resolveAppFile(appDir, segment, internal);
     }
 
     public callHashRequest(req: HttpRequest): string {
@@ -200,7 +201,7 @@ describe("ReactRoute Tests", () => {
     });
 
     it("Renders the full error message on a 500 outside of production.", async () => {
-        const result = await request(server.getApplication()).get(UI_BASE + "/_throws");
+        const result = await request(server.getApplication()).get("/throws-app/");
         expect(result.status).toBe(500);
         expect(result.body).toContain("db connection failed at /secret/internal/path");
     });
@@ -209,7 +210,7 @@ describe("ReactRoute Tests", () => {
         const original = process.env.NODE_ENV;
         try {
             process.env.NODE_ENV = "production";
-            const result = await request(server.getApplication()).get(UI_BASE + "/_throws");
+            const result = await request(server.getApplication()).get("/throws-app/");
             expect(result.status).toBe(500);
             expect(result.body).toContain("Internal Server Error");
             expect(result.body).not.toContain("db connection failed");
@@ -302,6 +303,39 @@ describe("ReactRoute.resolveAppFile Tests", () => {
             expect(result).toBeNull();
         } finally {
             process.env.NODE_ENV = original;
+        }
+    });
+
+    it("Never resolves a URL to a file or directory whose name starts with an underscore.", async () => {
+        // test/app has _layout.tsx, _404.tsx, _500.tsx and a _styles directory.
+        for (const segment of ["/_layout", "/_404", "/_500", "/_styles/globals", "/_styles", "/%5Flayout"]) {
+            expect(await route.callResolveAppFile("test/app", segment), segment).toBeNull();
+        }
+    });
+
+    it("Still lets a dynamic segment capture a value that starts with an underscore.", async () => {
+        const result = await route.callResolveAppFile("test/app", "/pets/_layout");
+        expect(result?.file).toMatch(/pets[\\/]\[id\]\.tsx$/);
+        expect(result?.params).toEqual({ id: "_layout" });
+    });
+
+    it("Resolves the framework's own _layout, _404 and _500 lookups by their literal names.", async () => {
+        for (const name of ["_layout", "_404", "_500"]) {
+            const result = await route.callResolveAppFile("test/app", name, true);
+            expect(result?.file, name).toMatch(new RegExp(`${name}\.tsx$`));
+        }
+    });
+
+    it("Doesn't mistake a [dynamic] page for a missing _404 or _layout.", async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rrst-internal-"));
+        try {
+            fs.writeFileSync(path.join(dir, "[id].tsx"), "export default () => null;");
+            expect(await route.callResolveAppFile(dir, "_404", true)).toBeNull();
+            expect(await route.callResolveAppFile(dir, "_layout", true)).toBeNull();
+            // ...while a URL still reaches it.
+            expect((await route.callResolveAppFile(dir, "/anything"))?.params).toEqual({ id: "anything" });
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
         }
     });
 

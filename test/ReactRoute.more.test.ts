@@ -419,6 +419,34 @@ describe("ReactRoute.init Tests", () => {
         expect(route.getServiceFor("/app/svc")).toBeUndefined();
     });
 
+    it("Finds a react service however its page's path is written: trailing or doubled slashes, percent-encoding.", async () => {
+        @ReactService("/svc/page")
+        class PageService {}
+        @ReactService("/svc/trailing/")
+        class TrailingService {}
+        const pageInstance = new PageService();
+        const trailingInstance = new TrailingService();
+        const newInstance = vi.fn(async (clazz: any) => (clazz === PageService ? pageInstance : trailingInstance));
+        const route = new TestableReactRoute();
+        route.setLogger(noopLogger);
+        route.setObjectFactory({
+            classes: new Map<string, any>([["PageService", PageService], ["TrailingService", TrailingService]]),
+            newInstance,
+        } as any);
+        await route.callInit();
+        const find = (segment: string) => (route as any).resolveService(segment);
+
+        for (const segment of ["/svc/page", "/svc/page/", "//svc//page", "/svc/%70age"]) {
+            expect(find(segment), segment).toBe(pageInstance);
+        }
+        expect(find("/svc/trailing")).toBe(trailingInstance);
+        expect(find("/svc/trailing/")).toBe(trailingInstance);
+        // A malformed escape is kept as it is, and simply matches nothing.
+        expect(find("/svc/pag%E0%A4%A")).toBeUndefined();
+        expect(find("/svc")).toBeUndefined();
+        expect(find("/")).toBeUndefined();
+    });
+
     it("Waits for react services to be instantiated before init() resolves.", async () => {
         @ReactService("/app/slow")
         class SlowService {}

@@ -54,6 +54,21 @@ function isSafeFileName(name: string): boolean {
     return !/[\/\\\0]/.test(name);
 }
 
+/**
+ * Canonical form of a URL path or `@ReactService` path for looking a service up: empty segments collapsed (so `/pets/`,
+ * `//pets` and `/pets` are one path), each segment percent-decoded (`/%70ets` is `/pets`), always with a leading `/`.
+ */
+function normalizeServicePath(p: string): string {
+    const parts = p.split("/").filter(Boolean).map((part) => {
+        try {
+            return decodeURIComponent(part);
+        } catch {
+            return part;
+        }
+    });
+    return "/" + parts.join("/");
+}
+
 const _hashCache: Map<string, string> = new Map();
 /** Upper bound on the production `resolvedFileCache`, so unique request URLs can't grow it without limit. */
 const MAX_RESOLVED_FILE_CACHE = 10000;
@@ -312,7 +327,7 @@ export class ReactRoute {
                         if (pageSegment.includes(":")) {
                             this.dynamicServices.push({ template: pageSegment, instance });
                         } else {
-                            this.services.set(pageSegment, instance);
+                            this.services.set(normalizeServicePath(pageSegment), instance);
                         }
                     }
                 }
@@ -345,7 +360,7 @@ export class ReactRoute {
      * bracket names (though they should, by convention, for `fetchProps` to make sense).
      */
     private resolveService(pageSegment: string): any {
-        const exact = this.services.get(pageSegment);
+        const exact = this.services.get(normalizeServicePath(pageSegment));
         if (exact) return exact;
         for (const { template, instance } of this.dynamicServices) {
             if (matchRouteTemplate(template, pageSegment) !== null) return instance;
@@ -479,13 +494,19 @@ export class ReactRoute {
      * At the final segment, tries `.tsx` → `/index.tsx` → `.jsx` → `/index.jsx` → `.js` →
      * `/index.js` (dev) or `.js` → `/index.js` (production) in order, same as before — this ordering
      * is now also applied to a bracket-name candidate, treating it exactly like a literal segment.
+     *
+     * A file or directory whose name starts with `_` is never a route, so no URL resolves to one: `/_layout` and
+     * `/_components/Button` are as unmatched as any other missing page (a `[dynamic]` sibling can still capture the
+     * value). `internal` is for the framework's own lookups of `_layout`, `_404` and `_500`, which are exactly those
+     * files: it matches the literal name only, never a `[dynamic]` sibling.
      */
     protected async resolveAppFile(
         appDir: string,
-        segment: string
+        segment: string,
+        internal: boolean = false
     ): Promise<ResolvedAppFile | null> {
         const isProduction = process.env.NODE_ENV === "production";
-        const cacheKey = `${appDir} ${segment}`;
+        const cacheKey = `${internal ? "internal " : ""}${appDir} ${segment}`;
         if (isProduction) {
             const cached = this.resolvedFileCache.get(cacheKey);
             if (cached !== undefined) return cached;
@@ -536,10 +557,10 @@ export class ReactRoute {
             : [".js", "/index.js"];
 
         const result = !hasTsxContext
-            ? (await this.walkAppDir(appDir, parts, suffixes)) ??
-              (await this.walkAppDir(path.join("dist", appDir), parts, suffixes))
+            ? (await this.walkAppDir(appDir, parts, suffixes, internal)) ??
+              (await this.walkAppDir(path.join("dist", appDir), parts, suffixes, internal))
             // In dev (tsx) all TypeScript extensions are handled natively.
-            : await this.walkAppDir(appDir, parts, suffixes);
+            : await this.walkAppDir(appDir, parts, suffixes, internal);
 
         if (isProduction) {
             this.cacheResolvedFile(cacheKey, result);
@@ -624,7 +645,8 @@ export class ReactRoute {
     private async walkAppDir(
         root: string,
         parts: string[],
-        suffixes: string[]
+        suffixes: string[],
+        internal: boolean
     ): Promise<ResolvedAppFile | null> {
         const appRoot = path.resolve(process.cwd(), root);
 
@@ -647,8 +669,9 @@ export class ReactRoute {
             const isLast = i === parts.length - 1;
 
             // A decoded segment holding a path separator or NUL (`..%2f..%2fx`) can only ever be a value
-            // captured into a `[dynamic]` param — never a literal name to probe on disk.
-            const literalOk = isSafeFileName(part);
+            // captured into a `[dynamic]` param — never a literal name to probe on disk. Neither can a `_`-prefixed
+            // one (those files aren't routes), except for the framework's own `internal` lookups of them.
+            const literalOk = isSafeFileName(part) && (internal || !part.startsWith("_"));
 
             if (!isLast) {
                 const literalDir = path.join(currentDir, part);
@@ -671,6 +694,8 @@ export class ReactRoute {
                     return { file: full, params, template: "/" + [...templateParts, part].join("/") };
                 }
             }
+
+            if (internal) return null;
 
             const fileExts = suffixes.filter((s) => !s.startsWith("/"));
             const bracketName = await this.findDynamicSegmentName(currentDir, fileExts);
@@ -739,7 +764,7 @@ export class ReactRoute {
     private async renderPage(req: HttpRequest, pageSegment: string): Promise<{ status: number; html: string }> {
         // Lazy-load the global layout on first request
         if (!this.layout) {
-            const layoutResolved = await this.resolveAppFile(this.appDir, "_layout");
+            const layoutResolved = await this.resolveAppFile(this.appDir, "_layout", true);
             if (layoutResolved) {
                 const layoutMod = await import(pathToFileURL(layoutResolved.file).href);
                 this.layout = layoutMod.default;
@@ -753,7 +778,7 @@ export class ReactRoute {
         const template = resolved?.template ?? "";
         let httpStatus = 200;
         if (!pagePath) {
-            pagePath = (await this.resolveAppFile(this.appDir, "_404"))?.file ?? null;
+            pagePath = (await this.resolveAppFile(this.appDir, "_404", true))?.file ?? null;
             httpStatus = 404;
         }
 
@@ -813,7 +838,7 @@ export class ReactRoute {
                 ? { name: "Error", message: "Internal Server Error" }
                 : err;
 
-            const errorResolved = await this.resolveAppFile(this.appDir, "_500");
+            const errorResolved = await this.resolveAppFile(this.appDir, "_500", true);
             if (errorResolved) {
                 try {
                     const errMod = await import(pathToFileURL(errorResolved.file).href);
