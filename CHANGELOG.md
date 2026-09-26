@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-26
+
+### Added
+- Added junit.xml to gitignore
+
+### Changed
+- Document that a downstream package's release bump level follows its upstream dependency's, minor for minor, patch for patch and major for major, in NOTES
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+- Document that CSS Modules and imported images and fonts are not supported in a server-rendered page, and correct the SSR stub's comment that claimed to handle more
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
+### Fixed
+- Fixed the dev server crashing with "EPERM: operation not permitted, watch" on Windows, and staying down until the next file change, whenever a client rebuild replaced the Vite manifest, because the fs.watch on it emitted an 'error' event that nothing listened for and an unhandled 'error' event is fatal in Node, while the try/catch around fs.watch only covered it throwing synchronously Have a watcher 'error', or a 'rename' from a watcher that keeps watching the deleted file, end that watch and look for the replacement manifest for up to five seconds, then watch it and reload the browsers, which also stops live reload silently ending after the first rebuild Add tests with a realistic fake watcher for the error, the rename, repeated rebuilds, waiting for the manifest to come back and giving up, verify against a real fs.watch that the original code produces the EPERM and the fix does not, and document the fix in the changelog and release notes
+- Fixed a request path with an encoded slash or backslash (/..%2f..%2fscripts%2fseed) resolving to, importing and rendering a .js/.jsx/.tsx module outside appDir by letting such a decoded segment only be captured as a [dynamic] param value, never probed as a file name
+- Fixed hydration props containing $&, $`, $' or $$ being corrupted, and the page being spliced into the props, by injecting them with replacer functions instead of replacement strings
+- Fixed the production page-resolution cache growing without limit as distinct URLs were requested by capping it at 10,000 entries
+- Fixed @ReactService classes being registered after init() had resolved, so requests right after startup rendered and cached a page without its service's props, by awaiting their instantiation
+- Fixed the server-rendered location's search being empty under uWS, which leaves the query out of req.url, by rebuilding it from req.query
+- Fixed navigating to the page that is already loading falling back to a full page load by not reusing a pending request whose signal was aborted
+- Fixed going back or forward overwriting the scroll position about to be restored with the one of the page being left
+- Fixed runStaticExport() leaving the static-paths endpoint enabled in the process when the server failed to start
+- Fixed a file or directory whose name starts with _ being served as a page (GET /_layout, GET /_components/Button) against the convention that it isn't a route, by never resolving a URL to one while a [dynamic] segment can still capture the value
+- Fixed a missing _404.tsx or _layout.tsx being replaced by a root [dynamic] page by giving the framework's own lookups of them an internal mode that matches the literal name only
+- Fixed a @ReactService not being found for its page when the URL has a trailing or doubled slash or percent-encoding by normalizing the path on both sides of the lookup
+- Fixed GET /.vite/manifest.json, and anything else in a dot folder or a dotfile of the client build other than .well-known, being served by the built-in asset handler
+- Fixed a @ReactService being registered on a route it isn't under the prefix of, so a root app's @ReactService("/") also ran for an admin app's / page, by counting a path as under a prefix only in whole segments and no longer keeping one that isn't
+- Fixed the document's title staying the first page's after client navigation by rendering the layout's <title> for each page's props on the server and sending it with the page's data, which the router sets
+- Fixed the stylesheets of a page navigated away from staying in the document and applying to every page after it by having the server list the first page's stylesheets in the router config and removing the ones a page brought, and never a layout's own, when the next page doesn't need them
+- Fixed the client router never matching a page whose file name has spaces or non-ASCII characters, so every link to it was a full page load, by comparing a route's literal segments against the decoded URL
+- Fixed exclude of a route template in a static export leaving the pages enumerated for it in the export
+- Fixed useRouter().navigate, prefetch and canHandle being undefined in the browser by binding them to the router instead of copying them off it with an object spread, which leaves behind the methods on a class's prototype
+- Fixed a page's route template being taken from the URL's spelling instead of its file, so /index and /pets/index rendered a page the client router had no route for and never hydrated it, by building it from the resolved file
+- Fixed a URL's segment resolving to any casing of a file's name on a case-insensitive filesystem, each casing loading another copy of the page module that is never released, by matching segments against the names a directory really has
+- Fixed a @ReactService running for a page it does not belong to when a URL's encoded slash was decoded for the service lookup but not for page resolution, by finding a page's service by the route template the page was resolved to
+- Fixed the Windows 8.3 short name of a dot folder (/VITE~1/manifest.json) serving Vite's manifest, and a symlink in the output directory serving a file from outside it, by judging a served file by its real path
+- Fixed a #fragment link, or going back to one, fetching and remounting the whole page by leaving a change of only the fragment to the browser
+- Fixed the scroll position being lost on a reload or going back to a page from a full page load by saving it as the page is left and restoring it when the router starts
+- Fixed Link warming a URL that only a root-level dynamic page matches, which another route may serve and may not be safe to GET on hover, by not prefetching a route that starts with a :param
+- Fixed prefetched pages that were never navigated to being kept for the whole session by dropping expired ones and keeping at most 32
+- Fixed the router sending the browser to a javascript: or other non-http(s) URL from navigate() and the fallback to a full page load by only ever navigating to http(s) URLs
+- Fixed the page's JSON config and props script being found with getElementById, so an element in page content with a chosen id could stand in for it, by reading only JSON scripts
+- Fixed a _layout that fails to load bypassing _500 and the error redaction by loading it inside the render's error handling
+- Fixed a title the layout renders being set after the page renders, overwriting one the page sets for itself, by setting it first
+- Fixed a client navigation being worked out separately by every browser that asks for it at once by sharing one computation between them, as for the HTML
+- Fixed Vary being replaced by the navigation header, dropping what an earlier middleware set, by adding to it
+- Fixed a 500's error reaching the _500 page whole unless NODE_ENV was exactly production by redacting it wherever dev mode is off
+- Fixed two apps sharing a page cache answering each other's URLs by including the app and mount prefix in the cache key, and under the router the query string as written
+- Fixed the production caches of resolved pages and request hashes growing by a key per distinct URL a client made up by remembering only the framework's own _layout, _404 and _500 lookups and each directory's listing
+- Fixed the manifest being searched for every page render and navigation in production by working out a page's assets once
+- Fixed a client build file named for its content being sent without Cache-Control, and paths that are not assets touching the filesystem, by serving such a file as immutable and checking the extension first
+- Fixed the dev live-reload watcher never starting when the server came up before the first build wrote the manifest, and giving up five seconds after a rebuild replaced it, by looking for it for a minute at startup and thirty seconds after
+- Fixed rapidreact dev leaving a started server running and holding its port when another process failed to start, and leaving it behind on Windows when stopped because only the cmd.exe wrapper was killed, by stopping every process and killing the whole tree
+- Fixed a static export copying Vite's manifest and other dot folders and dotfiles out of assetsDir, its files overwriting crawled pages, and a redirect being exported as the page it leads to by filtering them, copying assetsDir first and reporting a redirect as an error
+- Fixed exclude in a static export letting every second route through when a pattern had the g or y flag by resetting its position before each test
+- Fixed which of two @ReactService classes claiming one page wins depending on which finished instantiating first by registering them in the order the classes were listed
+- Fixed changelog
+
 ## [2.0.0-beta.3] - 2026-09-15
 
 ### Changed
@@ -238,7 +300,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...v2.0.0
 [2.0.0-beta.3]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...v2.0.0-beta.3
 [2.0.0-beta.2]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...v2.0.0-beta.2
 [2.0.0-beta.1]: https://github.com/rapidrest/react/compare/v2.0.0-beta.0...v2.0.0-beta.1
