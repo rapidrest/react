@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-26
+
+### Added
+- Added a _shell.tsx per app directory to the client router, a client layout that stays mounted while pages swap inside it, rendered on the server around the page and hydrated as one root with it, so a failing page leaves the shell mounted
+- Added shallow navigation for a query or hash change on the same route, which keeps the page instance, with useSearchParams, useLocation, hash and a replace or push choice on every navigation
+- Added a pending state, and configurable focus, scroll and a polite announcement after a navigation, through useNavigationEffects or the router options
+- Added idle prefetch that honours save-data, a prefetch that warms only the page's code, and an opt-in prefetch of plain links
+- Added NavLink with aria-current and useMatch, and a title export on a page that the server render and the navigation payload both use
+- Added useBlocker, which asks before a link, navigate or back and forward navigation leaves the page and before a real page load
+
+### Changed
+- Test each feature, the server render, hydration and a real Vite build with a shell
+- Document the change in the release notes, the README and NOTES
+- Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+
 ## [2.0.0] - 2026-09-26
 
 ### Added
@@ -300,7 +315,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/rapidrest/react/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...v2.0.0
 [2.0.0-beta.3]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...v2.0.0-beta.3
 [2.0.0-beta.2]: https://github.com/rapidrest/react/compare/v2.0.0-beta.1...v2.0.0-beta.2

@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## v2.1.0
 
 Additive throughout — a minor release (v2.1.0). An app that opts into none of it behaves exactly as 2.0.0.
 
