@@ -343,3 +343,51 @@ Considered, not done:
 - Per-page opt-out of the shell, nested shells (`_shell.tsx` in subdirectories), a `shellProps` contract separate from the page's props, `Link`/`NavLink` merged (would change `Link`'s server output), a `<RouterOptions>` component (the hook is enough).
 - A shell/router for `hydrate = true` without `router`; per-app prefetch lists in one `createViteConfig` call (an href that matches no route of an app is simply ignored, so one list can name several apps' pages).
 - Restoring a refused back/forward exactly when the browser trimmed history is best effort (falls back to pushing the page's URL again).
+
+### 2026-09-27 - mountRouter(): a client-side-only bootstrap for a host with no SSR at all (unreleased)
+
+Why: a new `rapidmx/web-client` consumer, a native Tauri app (`tauri-client`), mounts `web-client`'s real page
+components directly in a webview with no server-rendered HTML at all — no `ReactRoute`, no `#rapidrest-router` config,
+no serialized props script. `startRouter()` only ever hydrates (confirmed by reading it in full: it hard-requires the
+config script and a root element whose children already match what the server rendered — `hydrateRoot()`, not
+`createRoot()`). This was exactly the gap this file already flagged as not-yet-built ("A shell/router for `hydrate =
+true` without `router`", Considered/not done, above) — `mountRouter()` closes the client-side-only half of it (the
+`router = true` half; hydrating a shell with no router remains unbuilt).
+
+- **Reuse, not a second implementation.** `mountRouter()` lives in `router.ts` next to `startRouter()` and shares
+  everything that isn't hydration-specific: `createBrowserPlatform()` (unchanged, same function), the private
+  `RouteBoundary` class (same one, referenced directly — module-private, so this only works because both live in the
+  same file), and — the part that matters most — the `Router` class and `routerCore.ts`'s `matchClientRoute()`/
+  `sortRoutes()` for working out the initial route from `win.location` itself, the same matching `Router` already does
+  internally for every navigation after mount. Nothing about navigation, prefetching, blockers or shallow nav was
+  reimplemented.
+- **What's genuinely new**: the guard clauses (no config to read — just `options.rootId`'s element and a route match
+  against the given table), `options.resolveProps?.(route, params)` in place of reading a props `<script>`, and
+  `createRoot(container).render(...)` in place of `hydrateRoot(container, ...)`. Also simpler than `startRouter()` in
+  one respect: no `onMounted`/hash-swap dance — that trick exists only because the server never sends a `#fragment`, so
+  hydration has to start without one and correct it after mount; a client-only mount reads the real URL (hash
+  included) from the start.
+- **Deliberately did not touch `startRouter()`'s body at all** (hard constraint from the task), including the ~25 lines
+  of event-listener wiring (click interception, popstate, beforeunload, prefetch warming, idle prefetch, scroll
+  restoration) at the end of it — `mountRouter()` has its own copy of that block rather than extracting a shared
+  helper both would call, since doing that would have meant editing `startRouter()`'s implementation (even though its
+  outward behavior would be identical) to replace inline code with a call to it. Judged not worth the risk for ~25
+  duplicated lines; revisit if a third bootstrap ever needs the same wiring.
+- **Shell support included**, unlike the bare minimum asked for: `options.shell` renders around every page from the
+  very first render (no server markup to agree with, so — unlike `startRouter()` — there's no "client has a shell the
+  server didn't render" mismatch to guard against). Crash recovery (`RouteBoundary` + the `RECOVERY_KEY` reload-once
+  guard) is reused as-is too; for a pure-CSR host a reload just retries the same client render once, which is still
+  better than a permanently blank page.
+- **Ongoing navigation after mount still calls out to a server** (`Router.go()`'s `fetchPayload()`), same as
+  `startRouter()` — `mountRouter()` only replaces the *bootstrap* read of the *first* page's props, not the
+  `X-Rapidrest-Navigation` JSON round trip every subsequent full navigation makes. A host with genuinely no backend at
+  all (the Tauri case, maybe) still needs something answering that endpoint (or `resolveProps`-only pages that never
+  navigate to another route) — out of scope here; flagging so a future session doesn't assume `mountRouter()` alone
+  makes the router work with zero network access.
+- Tests: `test/mountRouter.test.ts` (fake platform, mirrors `router.test.ts`/`router.features.test.ts`'s structure —
+  guard clauses, resolveProps, shell on/off, the update-callback branches, crash recovery, listeners, prefetch, scroll
+  restoration) and `test/mountRouter.dom.test.ts` (real jsdom + real reconciler, mirroring a trimmed
+  `shell.dom.test.ts`: mounts into a genuinely empty `<div>`, asserts no `#rapidrest-router` element and no `fetch` call
+  for the first page, then proves a `NavLink` click and `router.navigate()` both work exactly as they do once
+  `startRouter()` has mounted). Full suite stayed green and 100%-coverage throughout; `startRouter()`/`hydrateRoute()`
+  and their existing tests are byte-for-byte unchanged.

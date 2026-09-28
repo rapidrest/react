@@ -44,8 +44,8 @@ export function hydrateRoute(
     hydrateRoot(container, React.createElement(Component, props));
 }
 
-export { startRouter } from "./router.js";
-export type { StartRouterOptions } from "./router.js";
+export { mountRouter, startRouter } from "./router.js";
+export type { MountRouterOptions, StartRouterOptions } from "./router.js";
 export { shouldSaveData, whenIdle } from "./idle.js";
 export {
     createSearchParams,

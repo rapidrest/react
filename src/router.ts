@@ -4,7 +4,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 import { Component, type ComponentType, createElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { hydrateRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import { type ConnectionNavigator, type IdleWindow, shouldSaveData, whenIdle } from "./idle.js";
 import { matchRouteTemplate } from "./routeMatch.js";
 import { RouterProvider } from "./routerContext.js";
@@ -14,6 +14,7 @@ import {
     isInterceptableAnchor,
     isInterceptableClick,
     isPagePayload,
+    matchClientRoute,
     NAVIGATION_HEADER,
     type NavigationEffects,
     type PageUpdate,
@@ -23,6 +24,7 @@ import {
     ROUTER_CONFIG_ID,
     type RouterConfig,
     type RouterPlatform,
+    sortRoutes,
     stripPrefix,
 } from "./routerCore.js";
 
@@ -512,6 +514,171 @@ export async function startRouter(
     // Pointing at, pressing on or focusing a link is a sign it's about to be followed: get its page ready. A `Link` does that
     // itself (and opts out with `prefetch={false}`); for the plain `<a>` an app has, it's something to ask for, as it costs
     // the server the page's props for every link the pointer passes over.
+    if (options.prefetch?.links) {
+        const warm = (event: Event) => {
+            const anchor = anchorOf(event);
+            if (!anchor || !isInterceptableAnchor(anchor) || anchor.getAttribute("data-router-prefetch") === "false") return;
+            router.prefetch(anchor.getAttribute("href"));
+        };
+        for (const type of ["pointerover", "pointerdown", "focusin"]) doc.addEventListener(type, warm);
+    }
+
+    const idle = options.prefetch?.idle ?? [];
+    if (idle.length > 0 && !shouldSaveData(win.navigator)) {
+        whenIdle(() => idle.forEach((href) => router.prefetch(href, { data: options.prefetch?.data === true })), win, doc);
+    }
+
+    return router;
+}
+
+/** What `mountRouter()` can be told. */
+export interface MountRouterOptions {
+    /** Element id of the (empty) container to render into. Unlike `startRouter()`'s hydration root, nothing is expected to be in it already. */
+    rootId: string;
+    /** The mount prefix (e.g. `/admin`) route templates are relative to. Default `""`, none. */
+    prefix?: string;
+    /**
+     * The app's persistent shell, the default export of its `_shell.tsx`: rendered around every page from the very first
+     * render — there's no server-rendered markup it has to agree with, unlike `startRouter()`'s `shell`, which is only
+     * rendered when the server rendered it too.
+     */
+    shell?: ComponentType<any>;
+    /**
+     * Supplies whatever props the matched route's component (and the shell, if any) needs for the page the URL is
+     * mounting on: called once, with the matched route and the values its `:params` captured, before the route's module
+     * is loaded. There's no server-rendered payload to read a first page's props from in a pure client-side mount, the
+     * way `startRouter()` reads one out of the DOM — this is how a caller supplies the same thing. Left out, or
+     * resolving to `undefined`, renders the page with no props, which is how `@rapidmx/web-client`'s own pages already
+     * work: they fetch their data themselves once mounted, rather than needing it at bootstrap.
+     */
+    resolveProps?: (route: ClientRoute, params: Record<string, string>) => Promise<unknown>;
+    /** What happens after a page navigation, for the whole app: where focus goes, how the page scrolls, what's announced. `useNavigationEffects()` overrides it. */
+    effects?: NavigationEffects;
+    /** Mark the root `data-router-pending` and `aria-busy="true"` while a navigation is in flight. Default `false`. */
+    pendingAttributes?: boolean;
+    /** Warm pages before they're asked for. Same as `StartRouterOptions.prefetch`. */
+    prefetch?: StartRouterOptions["prefetch"];
+}
+
+/**
+ * Mounts the router client-side-only, with no server-rendered HTML at all: for a host with no SSR of its own (an app
+ * shell hosting `@rapidrest/react` pages in a native webview, say), rather than `startRouter()`'s hydration of markup a
+ * `ReactRoute` server rendered. Matches `win.location` against `routes` itself — the same matching (`matchClientRoute()`,
+ * `sortRoutes()`) the `Router` it returns already does for every navigation afterwards, so there's nothing of that to
+ * duplicate here — and `ReactDOM.createRoot(rootEl).render(...)`s the result into `options.rootId`'s (empty) element,
+ * rather than `hydrateRoot()`ing into one whose children are expected to already be there. Once mounted, the `Router`
+ * returned is the same class, wired the same way, as `startRouter()`'s: the same `NavLink`, `useBlocker()`, shallow
+ * navigation and prefetching, with nothing reimplemented for it.
+ *
+ * Reads no `#rapidrest-router` config and no serialized props `<script>` — see `options.resolveProps` for how the first
+ * page's props are supplied instead.
+ *
+ * @returns The `Router`, or `undefined` when there's nothing to mount on (no DOM, no `options.rootId` element, or the
+ * URL matches none of `routes`).
+ */
+export async function mountRouter(
+    routes: ClientRoute[],
+    options: MountRouterOptions,
+    win: WindowLike | undefined = typeof window === "undefined" ? undefined : (window),
+    doc: DocumentLike | undefined = typeof document === "undefined" ? undefined : (document),
+): Promise<Router | undefined> {
+    if (!win || !doc) return undefined;
+
+    const container = doc.getElementById(options.rootId);
+    if (!container) {
+        console.error(`[rapidrest/react] The router has nothing to mount on: no #${options.rootId} element.`);
+        return undefined;
+    }
+
+    const prefix = options.prefix ?? "";
+    const url = new URL(win.location.href);
+    const match = matchClientRoute(sortRoutes(routes), url.pathname, prefix);
+    if (!match) {
+        console.error(`[rapidrest/react] No client route matches "${url.pathname}".`);
+        return undefined;
+    }
+
+    let root: ReturnType<typeof createRoot>;
+    let router!: Router;
+    let screen!: Screen;
+
+    /** A page that crashed the client: there's no server to render it instead here, but a reload is at least a fresh start (once; see `RECOVERY_KEY`). */
+    const recover = (error: unknown) => {
+        console.error("[rapidrest/react] A page failed to render in the browser:", error);
+        try {
+            if (win.sessionStorage.getItem(RECOVERY_KEY) === win.location.href) return;
+            win.sessionStorage.setItem(RECOVERY_KEY, win.location.href);
+        } catch {
+            // No sessionStorage: reload without the loop protection, which is what would have happened anyway.
+        }
+        win.location.reload();
+    };
+
+    const element = () => {
+        const { page, key } = screen;
+        // Keyed, as `startRouter()`'s is, so every navigation is a new instance of its page, and a page that failed
+        // doesn't leave the next one showing nothing.
+        const boundary = createElement(RouteBoundary, { key, onError: recover }, createElement(page.component, page.props));
+        return createElement(
+            RouterProvider,
+            { location: { pathname: page.url.pathname, search: page.url.search, hash: page.url.hash, params: page.params, route: page.route }, api: router },
+            options.shell ? createElement(RouteBoundary, { onError: recover }, createElement(options.shell, page.props, boundary)) : boundary,
+        );
+    };
+
+    const platform = createBrowserPlatform(
+        win,
+        doc,
+        container,
+        (page) => {
+            screen = { ...screen, page, key: screen.key + 1 };
+            flushSync(() => root.render(element()));
+        },
+        [],
+        {
+            effects: () => router.effects(),
+            update: (change) => {
+                const params = change.params ?? screen.page.params;
+                const props =
+                    change.props !== undefined ? change.props : change.params ? { ...screen.page.props, params } : screen.page.props;
+                screen = { ...screen, page: { ...screen.page, url: change.url, params, props } };
+                root.render(element());
+            },
+            pendingAttributes: options.pendingAttributes,
+        },
+    );
+    router = new Router(routes, prefix, platform, Date.now, { route: match.route.template, effects: options.effects });
+
+    const module = await match.route.load();
+    const props = await options.resolveProps?.(match.route, match.params);
+    // No server markup to render first: the URL's own #fragment (if any) is there from the start, unlike `startRouter()`,
+    // which only has it once hydration has mounted.
+    screen = { page: { component: module.default, props, url, params: match.params, route: match.route.template }, key: 1 };
+    root = createRoot(container);
+    root.render(element());
+
+    if (win.history.scrollRestoration !== undefined && options.effects?.scroll !== false) win.history.scrollRestoration = "manual";
+    const saved = win.history.state?.rrScroll;
+    if (saved && options.effects?.scroll !== false) win.scrollTo(saved.x, saved.y);
+    win.addEventListener("pagehide", () => platform.saveScroll());
+    win.addEventListener("popstate", () => void router.popstate());
+    win.addEventListener("beforeunload", (event) => {
+        if (!router.shouldBlockUnload()) return;
+        event.preventDefault();
+        event.returnValue = "";
+    });
+    const anchorOf = (event: Event) => (event.target as { closest?: (selector: string) => any } | null)?.closest?.("a") ?? null;
+    doc.addEventListener("click", (event) => {
+        const anchor = anchorOf(event);
+        if (!isInterceptableClick(event, anchor)) return;
+        const href: string = anchor.getAttribute("href");
+        if (!router.canHandle(href)) return;
+        event.preventDefault();
+        void router.navigate(href, {
+            replace: anchor.hasAttribute("data-router-replace"),
+            ...(anchor.hasAttribute("data-router-shallow") ? { shallow: true } : {}),
+        });
+    });
     if (options.prefetch?.links) {
         const warm = (event: Event) => {
             const anchor = anchorOf(event);

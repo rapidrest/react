@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Added mountRouter, a client-side-only bootstrap into the same router startRouter hydrates: it matches the current URL against the given routes itself with the same matching startRouter's Router already uses for every navigation after it, renders with createRoot instead of hydrateRoot into a plain, empty root element, and takes a resolveProps callback for the first page's props instead of reading a server-rendered config and props script, for a host with no SSR of its own such as a native app shell
+- Export mountRouter and MountRouterOptions from the client entry, alongside startRouter
+
 ## [2.1.0] - 2026-09-26
 
 ### Added

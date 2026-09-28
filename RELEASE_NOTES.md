@@ -1,5 +1,21 @@
 # Release Notes
 
+## Unreleased
+
+### Added
+
+* **`mountRouter()`, a client-side-only bootstrap.** For a host with no server-side rendering of its own — a native app
+  shell (e.g. a Tauri app) mounting pages in a webview — `mountRouter(routes, options, win?, doc?)` starts the same
+  router `startRouter()` hydrates, without any of `startRouter()`'s hydration requirements: it doesn't read a
+  `#rapidrest-router` config or a serialized props script, and it doesn't expect `options.rootId`'s element to already
+  have anything rendered in it. It matches `win.location` against `routes` itself, with the same route matching the
+  `Router` it returns already uses for every navigation after it, and renders with `ReactDOM.createRoot(...)` rather
+  than `hydrateRoot(...)`. `options.resolveProps?.(route, params)` supplies the first page's props (and the shell's, if
+  `options.shell` is given) — there's no server-rendered payload to read one out of, so this is how a caller provides
+  it; left out, the page renders with no props, same as a page that fetches its own data once mounted. Everything after
+  that first render — `NavLink`, shallow navigation, `useBlocker()`, prefetching, `useNavigationEffects()` — is the same
+  `Router` `startRouter()` returns, unchanged.
+
 ## v2.1.0
 
 Additive throughout — a minor release (v2.1.0). An app that opts into none of it behaves exactly as 2.0.0.
