@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-23
+
+### Added
+- Added mountRouter(), a client-side-only bootstrap into the existing Router that needs no server-rendered hydration payload, for a host with no SSR step at all
+- Added the missing "Enable corepack" step to the validate job - every other job already has it, and without it yarn runs the container's stock Yarn 1 instead of the packageManager-pinned version, which refuses to run at all against a packageManager field, so validate's yarn npm audit never actually ran regardless of real findings. Confirmed via a real CI failure on rapidmx/server and rapidrest/auth-server; same latent gap across the whole org's shared workflow template
+
+### Changed
+- Document the change in the changelog, release notes and NOTES
+- Publish a prerelease version to npm under the next tag, which npm requires, and a release under latest
+- Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
 ### Added
 - Added mountRouter, a client-side-only bootstrap into the same router startRouter hydrates: it matches the current URL against the given routes itself with the same matching startRouter's Router already uses for every navigation after it, renders with createRoot instead of hydrateRoot into a plain, empty root element, and takes a resolveProps callback for the first page's props instead of reading a server-rendered config and props script, for a host with no SSR of its own such as a native app shell
 - Export mountRouter and MountRouterOptions from the client entry, alongside startRouter
@@ -319,7 +330,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/rapidrest/react/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/rapidrest/react/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...v2.0.0
 [2.0.0-beta.3]: https://github.com/rapidrest/react/compare/v2.0.0-beta.2...v2.0.0-beta.3
