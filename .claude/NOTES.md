@@ -391,3 +391,7 @@ true` without `router`", Considered/not done, above) — `mountRouter()` closes 
   for the first page, then proves a `NavLink` click and `router.navigate()` both work exactly as they do once
   `startRouter()` has mounted). Full suite stayed green and 100%-coverage throughout; `startRouter()`/`hydrateRoute()`
   and their existing tests are byte-for-byte unchanged.
+
+### 2026-10-26 - Publish gate: only the tag's own Build, and only once every Build of its commit is green
+
+A release pushes `main` and its tag at the same commit, and each push runs Build. The old Publish ran after *any* green Build of a tagged commit, so a failed tag Build (activesync v1.2.0) or a failed `main` Build (web-client v0.37.0) didn't stop the release, and the second Publish run always failed as a duplicate. `.github/workflows/publish.yml`'s `check` job (ported from activesync 9c0f71d, where it was verified on the 1.2.1 release) now runs only for a tag push's Build (`head_branch` starting with `v`), checks the tag points at the commit on `main`, then polls the Build workflow's runs for that `head_sha` until all have finished, refusing if any did not succeed; a green rerun triggers Publish again. `check` has `actions: read`, `contents: read`; `publish` keeps its own steps and just `needs: check`.
