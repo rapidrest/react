@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-04
+
+### Added
+- Added the rule that the more specific agent model assignment wins where categories overlap
+
+### Changed
+- Publish only from a release tag's own Build, and only once every Build of that commit has finished green
+- Record the standing agent model assignments in the project notes
+- Move the agent model assignments to the top of the project notes, keeping session history at the bottom
+- Update the agent model assignments to JP's revised criteria: Sonnet for general code and review, Opus for architecture, planning, investigation, security and performance, Haiku for simple operations
+- Upgraded all deps
+- Pinning peer dep @rapidrest/core to 6.x
+- Pinning peer dep @rapidrest/service-core to 2.x
+- Updating/fixing CI workflows
+
 ## [2.2.0] - 2026-10-23
 
 ### Added
@@ -330,7 +345,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/rapidrest/react/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/rapidrest/react/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/rapidrest/react/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/rapidrest/react/compare/v2.0.0-beta.3...v2.0.0

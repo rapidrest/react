@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.3.0
+
 ### Changed
 
 * **Breaking: the `@rapidrest/core` peer dependency is now `6.x` (was `5.x`), and `@rapidrest/service-core` is now
