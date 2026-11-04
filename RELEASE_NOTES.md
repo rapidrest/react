@@ -1,5 +1,16 @@
 # Release Notes
 
+## Unreleased
+
+### Changed
+
+* **Breaking: the `@rapidrest/core` peer dependency is now `6.x` (was `5.x`), and `@rapidrest/service-core` is now
+  `2.x` (was `1.x`).** An app must move to both before upgrading. There are no API changes in this package itself.
+* Development: every devDependency is upgraded to its latest version, including Vitest 5, `@vitest/coverage-v8` 5,
+  `unplugin-swc` 2 and `@rapidrest/cli` 2.
+* CI: the publish workflow releases only from a release tag's own Build, and only once every Build of that commit has
+  finished green. The build and publish workflows install corepack before enabling it.
+
 ## v2.2.0
 
 ### Added
