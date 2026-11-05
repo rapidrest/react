@@ -94,6 +94,15 @@ function applyTitle(html: string, title: string): string {
     return html.slice(0, head.index) + replaced + html.slice(head.index + head[0].length);
 }
 
+/**
+ * `html` as a complete HTML document: it starts with `<!DOCTYPE html>`, without which a browser renders it in quirks
+ * mode. React's `renderToString()` never writes one (it renders the tree, and `<html>` is just an element in it), so a
+ * document is given the doctype here; one that already starts with a doctype (a Layout wrote its own) is left alone.
+ */
+function withDoctype(html: string): string {
+    return /^\s*<!doctype\s/i.test(html) ? html : `<!DOCTYPE html>${html}`;
+}
+
 /** A directory's entries, listed once (see `ReactRoute.listDir()`). */
 interface DirListing {
     entries: fs.Dirent[];
@@ -869,7 +878,7 @@ export class ReactRoute {
         }
 
         if (!pagePath) {
-            return { status: 404, html: "<html><head></head><body><h1>404 Not Found</h1></body></html>" };
+            return { status: 404, html: withDoctype("<html><head></head><body><h1>404 Not Found</h1></body></html>") };
         }
 
         // Dynamic-segment captures become visible both to req.params (so fetchProps overrides —
@@ -958,7 +967,7 @@ export class ReactRoute {
             html = this.injectDevReloadScript(html);
         }
 
-        return { status: httpStatus, html };
+        return { status: httpStatus, html: withDoctype(html) };
     }
 
     @Get("/*")

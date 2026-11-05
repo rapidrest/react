@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+* **Pages were sent without a `<!DOCTYPE html>`, so browsers rendered them in quirks mode.** React's `renderToString()`
+  writes the tree and never a doctype, and `ReactRoute` sent its output as it was, starting with `<html …>`. Every full
+  document it sends now starts with `<!DOCTYPE html>`: a rendered page (hydrated or not, with or without the client
+  router), the `_404` and `_500` pages, and the hard-coded 404 and 500 pages used when an app has none (or its `_500`
+  fails). A static export crawls the real server, so its `index.html` files and `404.html` have it too. A document that
+  already starts with a doctype is left alone, and the client router's JSON navigation payloads and the static-path
+  enumeration are not documents, so they don't get one.
+
 ## v2.3.0
 
 ### Changed

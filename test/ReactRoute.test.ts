@@ -133,7 +133,7 @@ describe("ReactRoute Tests", () => {
 
     it("Wraps pages in _layout.tsx.", async () => {
         const result = await request(server.getApplication()).get(UI_BASE + "/");
-        expect(result.body).toMatch(/^<html>/);
+        expect(result.body).toMatch(/^<!DOCTYPE html><html>/);
         expect(result.body).toContain("<body>");
     });
 

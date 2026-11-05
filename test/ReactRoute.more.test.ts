@@ -1269,7 +1269,7 @@ describe("ReactRoute.get hydration Tests", () => {
             route.setLogger(noopLogger);
             route.setManifestPath(manifestPath);
             const result = String(await route.get(fakeRequest({ path: "/" }), fakeResponse()));
-            expect(result.startsWith('<div id="react-root"><span>Plain</span></div>')).toBe(true);
+            expect(result.startsWith('<!DOCTYPE html><div id="react-root"><span>Plain</span></div>')).toBe(true);
             expect(result).toContain('<script type="module" src="/assets/bundle.js"></script>');
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
