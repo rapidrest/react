@@ -1338,7 +1338,7 @@ __metadata:
   dependencies:
     "@rapidrest/cli": "npm:^2.1.0"
     "@rapidrest/core": "npm:^6.1.0"
-    "@rapidrest/service-core": "npm:^2.5.1"
+    "@rapidrest/service-core": "npm:^2.6.0"
     "@swc/core": "npm:^1.16.21"
     "@types/cross-spawn": "npm:^6.0.6"
     "@types/node": "npm:^26.6.6"
@@ -1394,9 +1394,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@rapidrest/service-core@npm:^2.5.1":
-  version: 2.5.1
-  resolution: "@rapidrest/service-core@npm:2.5.1"
+"@rapidrest/service-core@npm:^2.6.0":
+  version: 2.6.0
+  resolution: "@rapidrest/service-core@npm:2.6.0"
   dependencies:
     axios: "npm:^1.21.0"
     dayjs: "npm:^1.11.23"
@@ -1426,7 +1426,7 @@ __metadata:
       optional: true
     uWebSockets.js:
       optional: true
-  checksum: 10c0/ef43edca7a2266245fc1272183ed49a1e7b6d55f55acc5f0b28aaf0f24da0c02d3d8f6ea07490268fae9f9e59b55beb05f8f7be1abfee04cfa92c4f12589ba6b
+  checksum: 10c0/98415bac7e421bbbf8bf249c3b3ca4232344f620e56376dd513af91bcfad86197bad1ec88de26373af23c56c78555a646c53555b0018ed8125a85fae0f42feb3
   languageName: node
   linkType: hard
 
