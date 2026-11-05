@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.3.1
+
 ### Fixed
 
 * **Pages were sent without a `<!DOCTYPE html>`, so browsers rendered them in quirks mode.** React's `renderToString()`

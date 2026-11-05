@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-05
+
+### Added
+- Added HttpResponse.destroy() to the uWS and Bun response adapters to terminate a connection abruptly
+- Added tests against real uWS and Bun servers for destroy() and for a route that throws after writing
+
+### Changed
+- Refactor the adapters' abort handling into one idempotent routine shared by client aborts and destroy()
+- Upgraded @rapidrest/service-core
+- Updated child deps
+
+### Fixed
+- Fixed a response that fails after it started streaming ending as a complete 200 with the error JSON appended
+
 ## [2.3.0] - 2026-11-04
 
 ### Added
@@ -345,7 +359,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Added `ReactRoute`, an abstract base class for handling server side rendered React based content, with support for caching
 
-[Unreleased]: https://github.com/rapidrest/react/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/rapidrest/react/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/rapidrest/react/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/rapidrest/react/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/rapidrest/react/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/rapidrest/react/compare/v2.0.0...v2.1.0
